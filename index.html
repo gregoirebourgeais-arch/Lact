@@ -31,13 +31,15 @@
 
   <!-- PAGE ATELIER -->
   <section id="atelier" class="page active">
-    <h2>Vue d’ensemble</h2>
-    <canvas id="atelierChart"></canvas>
+    <h2>Vue d’ensemble de l’atelier</h2>
 
-    <div id="atelierHistorique" class="historique"></div>
+<!-- Conteneur du graphique -->
+<div class="card">
+  <canvas id="atelierChart" height="180"></canvas>
+</div>
 
-    <button onclick="exportAllData()">📤 Exporter Excel</button>
-  </section>
+<!-- Historique global déjà présent -->
+<div id="atelierHistorique" class="historique"></div>
 
   <!-- PAGE PRODUCTION -->
   <section id="production" class="page">
