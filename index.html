@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Atelier PPNC</title>
+
+<!-- Chart.js & XLSX -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background: #f2f8ff;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+header {
+  background: #0056a0;
+  color: white;
+  padding: 10px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+header h1 {
+  font-size: 1.4em;
+}
+nav {
+  background: #007bff;
+  color: white;
+  display: flex;
+  justify-content: space-around;
+  padding: 8px 0;
+}
+nav button {
+  background: white;
+  color: #007bff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-weight: bold;
+}
+section {
+  display: none;
+  padding: 15px;
+}
+.active {
+  display: block;
+}
+.line-btn {
+  background: #0090ff;
+  color: white;
+  border: none;
+  padding: 10px;
+  border-radius: 8px;
+  margin: 5px;
+  font-size: 1em;
+}
+input, select, textarea {
+  width: 100%;
+  margin: 5px 0;
+  padding: 6px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+}
+button {
+  background: #0056a0;
+  color: white;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 8px;
+  margin-top: 6px;
+}
+#calculator {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: white;
+  border: 2px solid #007bff;
+  border-radius: 12px;
+  padding: 10px;
+  display: none;
+  z-index: 1000;
+}
+.calc-btn {
+  width: 50px;
+  height: 40px;
+  margin: 3px;
+  font-size: 1.2em;
+}
+.calc-drag {
+  cursor: move;
+  background: #007bff;
+  color: white;
+  padding: 5px;
+  border-radius: 6px 6px 0 0;
+  text-align: center;
+}
+.chart-container {
+  width: 100%;
+  height: 300px;
+  margin-top: 10px;
+}
+footer {
+  text-align: center;
+  color: #666;
+  padding: 10px;
+}
+</style>
+</head>
+
+<body>
+<header>
+  <h1>Atelier PPNC</h1>
+  <div id="dateTime"></div>
+</header>
+
+<nav>
+  <button onclick="showSection('atelier')">Atelier</button>
+  <button onclick="showSection('arrets')">Arrêts</button>
+  <button onclick="showSection('organisation')">Organisation</button>
+  <button onclick="showSection('personnel')">Personnel</button>
+  <button onclick="toggleCalculator()">Calculatrice</button>
+</nav>
+
+<!-- ATELIER -->
+<section id="atelier" class="active">
+  <h2>Vue d'ensemble Atelier</h2>
+  <div id="linesContainer"></div>
+  <canvas id="atelierChart" class="chart-container"></canvas>
+  <button onclick="exportAllData()">📤 Export Excel</button>
+</section>
+
+<!-- ARRETS -->
+<section id="arrets">
+  <h2>Arrêts</h2>
+  <select id="ligneArret">
+    <option value="">Choisir une ligne</option>
+  </select>
+  <input type="text" id="tempsArret" placeholder="Durée de l'arrêt (min)">
+  <select id="typeArret">
+    <option value="">Type</option>
+    <option value="Découpe">Découpe</option>
+    <option value="Packing">Packing</option>
+    <option value="MEC">MEC</option>
+  </select>
+  <textarea id="commentArret" placeholder="Commentaire"></textarea>
+  <button onclick="saveArret()">Enregistrer l'arrêt</button>
+  <h3>Historique des arrêts</h3>
+  <div id="arretsHistorique"></div>
+</section>
+
+<!-- ORGANISATION -->
+<section id="organisation">
+  <h2>Consignes & Organisation</h2>
+  <textarea id="consigneText" placeholder="Nouvelle consigne..."></textarea>
+  <button onclick="addConsigne()">Ajouter</button>
+  <div id="consignesList"></div>
+</section>
+
+<!-- PERSONNEL -->
+<section id="personnel">
+  <h2>Personnel</h2>
+  <input type="text" id="nomPersonnel" placeholder="Nom">
+  <select id="motifPersonnel">
+    <option value="">Motif</option>
+    <option>Absence</option>
+    <option>Retard</option>
+    <option>Départ</option>
+    <option>Autre</option>
+  </select>
+  <textarea id="commentPersonnel" placeholder="Commentaire"></textarea>
+  <button onclick="addPersonnel()">Enregistrer</button>
+  <div id="personnelHistorique"></div>
+</section>
+
+<!-- CALCULATRICE -->
+<div id="calculator">
+  <div class="calc-drag" onmousedown="startDrag(event)">Calculatrice</div>
+  <input id="calcDisplay" readonly style="width:100%; text-align:right; margin-bottom:5px;">
+  <div id="calcButtons"></div>
+  <button onclick="toggleCalculator()">Fermer</button>
+</div>
+
+<footer>© Atelier PPNC - Version stable finale</footer>
+
+<script>
+/* --- Variables globales --- */
+const lignes = ["Râpé","T2","RT","OMORI","T1","Sticks","Emballage","Dés","Filets","Prédécoupés"];
+let data = JSON.parse(localStorage.getItem("atelierData") || "{}");
+
+/* --- Initialisation --- */
+window.onload = () => {
+  showSection("atelier");
+  initDateTime();
+  initLignes();
+  initCalculator();
+};
+
+/* --- Date / Heure / Semaine --- */
+function initDateTime(){
+  setInterval(()=>{
+    const d = new Date();
+    const semaine = Math.ceil(((d - new Date(d.getFullYear(),0,1)) / 86400000 + d.getDay()+1)/7);
+    const options = { weekday: 'long', day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit'};
+    document.getElementById("dateTime").innerHTML = `${d.toLocaleDateString('fr-FR', options)} - S${semaine}`;
+  },1000);
+}
+
+/* --- Navigation --- */
+function showSection(id){
+  document.querySelectorAll("section").forEach(s=>s.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+}
+
+/* --- Lignes --- */
+function initLignes(){
+  const c = document.getElementById("linesContainer");
+  const sel = document.getElementById("ligneArret");
+  lignes.forEach(l=>{
+    const b = document.createElement("button");
+    b.className="line-btn";
+    b.textContent=l;
+    b.onclick=()=>openLigne(l);
+    c.appendChild(b);
+    const o = document.createElement("option");
+    o.value=l; o.textContent=l; sel.appendChild(o);
+  });
+}
+
+/* --- Ouvrir ligne --- */
+function openLigne(ligne){
+  const q = prompt(`Quantité réalisée pour ${ligne}:`);
+  const qr = prompt(`Quantité restante:`);
+  const debut = prompt("Heure de début (HH:MM):");
+  const fin = prompt("Heure de fin (HH:MM):");
+  const cadence = calculerCadence(q, debut, fin);
+  const tRestant = calcFinEstimee(qr, cadence);
+  alert(`${ligne} : Cadence ${cadence} colis/h | Temps restant : ${tRestant}`);
+  if(!data[ligne]) data[ligne]=[];
+  data[ligne].push({q, qr, debut, fin, cadence, tRestant, date:new Date().toLocaleString()});
+  localStorage.setItem("atelierData", JSON.stringify(data));
+}
+
+/* --- Calcul cadence --- */
+function calculerCadence(q, debut, fin){
+  if(!q || !debut || !fin) return 0;
+  const [h1,m1]=debut.split(":").map(Number);
+  const [h2,m2]=fin.split(":").map(Number);
+  let diff=((h2*60+m2)-(h1*60+m1))/60;
+  if(diff<=0) diff+=24;
+  return (q/diff).toFixed(2);
+}
+
+/* --- Fin estimée --- */
+function calcFinEstimee(qr, cadence){
+  if(!qr || !cadence) return "—";
+  const h=qr/cadence;
+  const m=Math.floor(h*60);
+  const hr=Math.floor(m/60), mn=m%60;
+  return `${hr}h ${mn}min restantes`;
+}
+
+/* --- Arrêts --- */
+function saveArret(){
+  const l=document.getElementById("ligneArret").value;
+  const t=document.getElementById("tempsArret").value;
+  const ty=document.getElementById("typeArret").value;
+  const c=document.getElementById("commentArret").value;
+  if(!l||!t)return alert("Complète tous les champs !");
+  if(!data.arrets) data.arrets=[];
+  data.arrets.push({ligne:l,temps:t,type:ty,comment:c,date:new Date().toLocaleString()});
+  localStorage.setItem("atelierData",JSON.stringify(data));
+  afficherArrets();
+}
+function afficherArrets(){
+  const d=data.arrets||[];
+  document.getElementById("arretsHistorique").innerHTML=d.map(a=>`<p>${a.date} - ${a.ligne} (${a.type}) : ${a.temps}min - ${a.comment||""}</p>`).join("");
+}
+
+/* --- Organisation --- */
+function addConsigne(){
+  const t=document.getElementById("consigneText").value;
+  if(!t)return;
+  if(!data.consignes)data.consignes=[];
+  data.consignes.push({texte:t,fait:false,date:new Date().toLocaleString()});
+  localStorage.setItem("atelierData",JSON.stringify(data));
+  afficherConsignes();
+  document.getElementById("consigneText").value="";
+}
+function validerConsigne(i){
+  data.consignes[i].fait=true;
+  localStorage.setItem("atelierData",JSON.stringify(data));
+  afficherConsignes();
+}
+function afficherConsignes(){
+  const c=data.consignes||[];
+  document.getElementById("consignesList").innerHTML=c.map((x,i)=>
+    `<p>${x.date} - ${x.texte} ${x.fait?'✅':'<button onclick="validerConsigne('+i+')">Valider</button>'}</p>`
+  ).join("");
+}
+
+/* --- Personnel --- */
+function addPersonnel(){
+  const n=document.getElementById("nomPersonnel").value;
+  const m=document.getElementById("motifPersonnel").value;
+  const c=document.getElementById("commentPersonnel").value;
+  if(!n||!m)return alert("Champs requis");
+  if(!data.personnel)data.personnel=[];
+  data.personnel.push({nom:n,motif:m,comment:c,date:new Date().toLocaleString()});
+  localStorage.setItem("atelierData",JSON.stringify(data));
+  afficherPersonnel();
+}
+function afficherPersonnel(){
+  const p=data.personnel||[];
+  document.getElementById("personnelHistorique").innerHTML=p.map(x=>`<p>${x.date} - ${x.nom} (${x.motif}) ${x.comment||""}</p>`).join("");
+}
+
+/* --- Export Excel --- */
+function exportAllData(){
+  const wb=XLSX.utils.book_new();
+  Object.keys(data).forEach(k=>{
+    const ws=XLSX.utils.json_to_sheet(data[k]);
+    XLSX.utils.book_append_sheet(wb,ws,k);
+  });
+  const date=new Date().toISOString().replace("T","_").slice(0,16).replace(":","h");
+  XLSX.writeFile(wb,`Atelier_PPNC_${date}.xlsx`);
+}
+
+/* --- Calculatrice --- */
+function initCalculator(){
+  const buttons=["7","8","9","/","4","5","6","*","1","2","3","-","0",".","=","+"];
+  const calcDiv=document.getElementById("calcButtons");
+  buttons.forEach(b=>{
+    const btn=document.createElement("button");
+    btn.className="calc-btn";
+    btn.textContent=b;
+    btn.onclick=()=>calcInput(b);
+    calcDiv.appendChild(btn);
+  });
+}
+let expr="";
+function calcInput(v){
+  if(v=="="){
+    try{expr=eval(expr).toString();}catch{expr="Erreur";}
+  }else expr+=v;
+  document.getElementById("calcDisplay").value=expr;
+}
+function toggleCalculator(){
+  const c=document.getElementById("calculator");
+  c.style.display=c.style.display=="block"?"none":"block";
+}
+function startDrag(e){
+  const calc=document.getElementById("calculator");
+  const shiftX=e.clientX-calc.getBoundingClientRect().left;
+  const shiftY=e.clientY-calc.getBoundingClientRect().top;
+  function move(ev){
+    calc.style.left=ev.pageX-shiftX+"px";
+    calc.style.top=ev.pageY-shiftY+"px";
+  }
+  document.addEventListener("mousemove",move);
+  document.onmouseup=()=>{document.removeEventListener("mousemove",move)};
+}
+
+/* --- Graphique Atelier --- */
+setInterval(()=>{
+  const ctx=document.getElementById("atelierChart").getContext("2d");
+  const labels=lignes;
+  const valeurs=lignes.map(l=>{
+    const e=(data[l]||[]);
+    if(!e.length)return 0;
+    return parseFloat(e[e.length-1].cadence)||0;
+  });
+  new Chart(ctx,{type:"line",data:{labels,datasets:[{label:"Cadence (colis/h)",data:valeurs,borderColor:"#007bff",fill:false}]},options:{responsive:true}});
+},5000);
+</script>
+</body>
+</html>
