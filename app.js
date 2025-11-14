@@ -1,43 +1,192 @@
-// === CONFIG & ÉTAT GLOBAL ===
+// =========================
+// CONFIG GLOBALE
+// =========================
 
+// Lignes de production
 const LINES = [
   "Râpé",
-  "T2",
-  "RT",
-  "OMORI",
   "T1",
-  "Sticks",
+  "T2",
+  "OMORI",
   "Emballage",
-  "Dés",
   "Filets",
-  "Prédécoupé",
+  "Dés",
+  "Prédécoupés",
+  "Autre"
 ];
 
-const STORAGE_KEY = "atelier_ppnc_state_v1";
-
-let state = {
-  currentSection: "atelier",
-  currentLine: LINES[0],
-  production: {}, // { line: [records] }
-  arrets: [], // [{...}]
-  organisation: [], // [{...}]
-  personnel: [], // [{...}]
+// Options d'arrêts par ligne (fidèles au Word)
+const ARRET_OPTIONS = {
+  "Râpé": {
+    sousLignes: ["R1", "R2", "R1/R2"],
+    machines: [
+      "Cubeuse",
+      "Cheesix",
+      "Liftvrac",
+      "Associative",
+      "Ensacheuse",
+      "Encaisseuse",
+      "Smartdate",
+      "Bizerba",
+      "DPM",
+      "Scotcheuse",
+      "Markem",
+      "Ascenseur"
+    ]
+  },
+  "T1": {
+    machines: [
+      "Slicer",
+      "BFR",
+      "AES",
+      "Tiromat",
+      "Préhenseur",
+      "Bizerba",
+      "DPM",
+      "Encaisseuse T1",
+      "Encaisseuse David",
+      "Markem",
+      "Balance cartons",
+      "Ascenseur"
+    ]
+  },
+  "T2": {
+    machines: [
+      "Selvex",
+      "Trieuse",
+      "Robots",
+      "Tiromat",
+      "Vision",
+      "Convergeur",
+      "DPM",
+      "Bizerba",
+      "Suremballeuse",
+      "Markem",
+      "Scotcheuse",
+      "Balance cartons",
+      "Formeuse caisse",
+      "Ascenseur"
+    ]
+  },
+  "OMORI": {
+    machines: [
+      "BFR",
+      "Accumulateur",
+      "OMORI",
+      "Videojet",
+      "DPM",
+      "Encaisseuse",
+      "Balance cartons",
+      "Ascenseur"
+    ]
+  },
+  "Emballage": {
+    machines: [
+      "Brinkman",
+      "Encaisseuse",
+      "Bizerba",
+      "Palettiseur",
+      "Paraffineuse",
+      "Râpé",
+      "Ecroûtage",
+      "Alpma"
+    ]
+  },
+  "Filets": {
+    machines: [
+      "Lieuse",
+      "C-Pack",
+      "Etiquetteuse",
+      "Scotcheuse"
+    ]
+  },
+  "Dés": {
+    machines: [
+      "Cheesix",
+      "Méca 2002",
+      "DPM",
+      "Bizerba",
+      "Scotcheuse"
+    ]
+  },
+  "Prédécoupés": {
+    machines: [
+      "Selvex",
+      "Bizerba",
+      "Quartivac",
+      "Scotcheuse"
+    ]
+  },
+  "Autre": {
+    machines: []
+  }
 };
 
-// === UTILITAIRES DATE / HEURE / ÉQUIPE ===
+// =========================
+// ETAT GLOBAL
+// =========================
 
-function getNow() {
-  return new Date();
+let state = {
+  production: {},     // { ligne: { draft: {...}, history: [...] } }
+  arrets: [],         // liste d'arrêts
+  organisation: [],   // consignes
+  personnel: []       // absences / retards etc.
+};
+
+let currentLineForArret = null; // pour savoir de quelle page de ligne on vient
+
+// =========================
+// UTILITAIRES
+// =========================
+
+function saveState() {
+  try {
+    localStorage.setItem("atelier_state", JSON.stringify(state));
+  } catch (e) {
+    console.warn("Impossible de sauvegarder dans localStorage", e);
+  }
 }
 
-function getEquipeFromDate(d) {
-  const h = d.getHours();
+function loadState() {
+  try {
+    const raw = localStorage.getItem("atelier_state");
+    if (raw) {
+      state = JSON.parse(raw);
+    }
+  } catch (e) {
+    console.warn("Impossible de charger localStorage", e);
+  }
+
+  // S'assurer que toutes les lignes existent
+  if (!state.production) state.production = {};
+  LINES.forEach(line => {
+    if (!state.production[line]) {
+      state.production[line] = {
+        draft: {
+          heureDebut: "",
+          heureFin: "",
+          quantite: "",
+          quantiteRestante: "",
+          cadenceManuelle: ""
+        },
+        history: []
+      };
+    }
+  });
+  if (!Array.isArray(state.arrets)) state.arrets = [];
+  if (!Array.isArray(state.organisation)) state.organisation = [];
+  if (!Array.isArray(state.personnel)) state.personnel = [];
+}
+
+function getCurrentTeam(date = new Date()) {
+  const h = date.getHours();
+  // M = 5h-13h / AM = 13h-21h / N = 21h-5h
   if (h >= 5 && h < 13) return "M";
   if (h >= 13 && h < 21) return "AM";
   return "N";
 }
 
-function getWeekNumber(d) {
+function getWeekNumber(d = new Date()) {
   const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   const dayNum = date.getUTCDay() || 7;
   date.setUTCDate(date.getUTCDate() + 4 - dayNum);
@@ -46,775 +195,582 @@ function getWeekNumber(d) {
   return weekNo;
 }
 
-function formatDateTime(d) {
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  const hh = String(d.getHours()).padStart(2, "0");
-  const min = String(d.getMinutes()).padStart(2, "0");
-  return `${dd}/${mm}/${yyyy} ${hh}h${min}`;
+function pad2(n) {
+  return n.toString().padStart(2, "0");
 }
-
-function formatShortDate(d) {
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  return `${dd}/${mm}`;
-}
-
-function formatTimeRemaining(minutes) {
-  if (!isFinite(minutes) || minutes <= 0) return "-";
-  const h = Math.floor(minutes / 60);
-  const m = Math.round(minutes % 60);
-  if (h === 0) return `${m} min`;
-  if (m === 0) return `${h} h`;
-  return `${h} h ${m} min`;
-}
-
-function parseTimeToMinutes(timeStr) {
-  if (!timeStr) return null;
-  const [h, m] = timeStr.split(":").map(Number);
-  if (isNaN(h) || isNaN(m)) return null;
-  return h * 60 + m;
-}
-
-// === LOCAL STORAGE ===
-
-function loadState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      LINES.forEach((l) => (state.production[l] = []));
-      return;
-    }
-    const parsed = JSON.parse(raw);
-    state = Object.assign(
-      {
-        currentSection: "atelier",
-        currentLine: LINES[0],
-        production: {},
-        arrets: [],
-        organisation: [],
-        personnel: [],
-      },
-      parsed
-    );
-    LINES.forEach((l) => {
-      if (!state.production[l]) state.production[l] = [];
-    });
-  } catch (e) {
-    console.error("Erreur loadState", e);
-    LINES.forEach((l) => (state.production[l] = []));
-  }
-}
-
-function saveState() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (e) {
-    console.error("Erreur saveState", e);
-  }
-}
-
-// === HEADER DATE / HEURE ===
 
 function initHeaderDate() {
-  const el = document.getElementById("header-datetime");
-  function update() {
-    const now = getNow();
-    const week = getWeekNumber(now);
-    const day = String(now.getDate()).padStart(2, "0");
-    const month = String(now.getMonth() + 1).padStart(2, "0");
-    const year = now.getFullYear();
-    const hh = String(now.getHours()).padStart(2, "0");
-    const mm = String(now.getMinutes()).padStart(2, "0");
-    const equipe = getEquipeFromDate(now);
+  const el = document.getElementById("headerDateInfo");
+  if (!el) return;
+  const now = new Date();
+  const jour = pad2(now.getDate());
+  const mois = pad2(now.getMonth() + 1);
+  const annee = now.getFullYear();
+  const heure = pad2(now.getHours());
+  const minute = pad2(now.getMinutes());
+  const week = getWeekNumber(now);
+  const equipe = getCurrentTeam(now);
 
-    el.textContent = `Quantième ${day} • ${day}/${month}/${year} • S${week} • ${hh}:${mm} • Équipe ${equipe}`;
+  el.textContent = `📅 ${jour}/${mois}/${annee} (S${week}) • ⏰ ${heure}h${minute} • Équipe : ${equipe}`;
+}
+
+// =========================
+// NAVIGATION
+// =========================
+
+function showSection(sectionId) {
+  document.querySelectorAll(".page-section").forEach(sec => {
+    if (sec.id === sectionId) {
+      sec.classList.add("active");
+    } else {
+      sec.classList.remove("active");
+    }
+  });
+
+  document.querySelectorAll(".nav-button").forEach(btn => {
+    const target = btn.getAttribute("data-target");
+    if (target === sectionId) {
+      btn.classList.add("active");
+    } else {
+      btn.classList.remove("active");
+    }
+  });
+}
+
+function openLinePage(lineName) {
+  // On suppose que la section production contient toutes les lignes,
+  // et qu'on scrolle jusqu'au bloc de la ligne.
+  showSection("page-production");
+  const anchor = document.querySelector(`[data-line-block="${lineName}"]`);
+  if (anchor) {
+    anchor.scrollIntoView({ behavior: "smooth", block: "start" });
   }
-  update();
-  setInterval(update, 30000);
 }
 
-// === NAVIGATION ===
+// =========================
+// PRODUCTION : FORMULAIRES
+// =========================
 
-function showSection(section) {
-  state.currentSection = section;
-  saveState();
+function syncLineDraftFromInputs(lineName) {
+  const baseId = lineName.replace(/\s+/g, "_"); // ex: "Râpé" -> "Râpé"
+  const hDeb = document.getElementById(`heureDebut-${baseId}`);
+  const hFin = document.getElementById(`heureFin-${baseId}`);
+  const qte = document.getElementById(`quantite-${baseId}`);
+  const qteRest = document.getElementById(`quantiteRestante-${baseId}`);
+  const cadMan = document.getElementById(`cadenceManuelle-${baseId}`);
 
-  document
-    .querySelectorAll(".section")
-    .forEach((sec) =>
-      sec.classList.toggle("visible", sec.id === `section-${section}`)
-    );
+  const draft = state.production[lineName].draft;
 
-  document
-    .querySelectorAll(".nav-btn")
-    .forEach((btn) =>
-      btn.classList.toggle("active", btn.dataset.section === section)
-    );
-
-  if (section === "atelier") {
-    refreshAtelierView();
-  } else if (section === "production") {
-    refreshProductionView();
-  } else if (section === "arrets") {
-    refreshArretsView();
-  } else if (section === "organisation") {
-    refreshOrganisationView();
-  } else if (section === "personnel") {
-    refreshPersonnelView();
-  }
+  if (hDeb) draft.heureDebut = hDeb.value;
+  if (hFin) draft.heureFin = hFin.value;
+  if (qte) draft.quantite = qte.value;
+  if (qteRest) draft.quantiteRestante = qteRest.value;
+  if (cadMan) draft.cadenceManuelle = cadMan.value;
 }
 
-function initNav() {
-  document.querySelectorAll(".nav-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      showSection(btn.dataset.section);
-    });
-  });
+function fillLineInputsFromDraft(lineName) {
+  const baseId = lineName.replace(/\s+/g, "_");
+  const d = state.production[lineName].draft;
+
+  const hDeb = document.getElementById(`heureDebut-${baseId}`);
+  const hFin = document.getElementById(`heureFin-${baseId}`);
+  const qte = document.getElementById(`quantite-${baseId}`);
+  const qteRest = document.getElementById(`quantiteRestante-${baseId}`);
+  const cadMan = document.getElementById(`cadenceManuelle-${baseId}`);
+  const tempsRest = document.getElementById(`tempsRestant-${baseId}`);
+
+  if (hDeb && d.heureDebut) hDeb.value = d.heureDebut;
+  if (hFin && d.heureFin) hFin.value = d.heureFin;
+  if (qte && d.quantite) qte.value = d.quantite;
+  if (qteRest && d.quantiteRestante) qteRest.value = d.quantiteRestante;
+  if (cadMan && d.cadenceManuelle) cadMan.value = d.cadenceManuelle;
+  if (tempsRest) tempsRest.textContent = ""; // sera recalculé
 }
 
-// === LIGNES (Production) ===
-
-function initLinesSidebar() {
-  const container = document.getElementById("linesList");
-  container.innerHTML = "";
-  LINES.forEach((line) => {
-    const btn = document.createElement("button");
-    btn.className = "line-btn";
-    btn.textContent = line;
-    btn.dataset.line = line;
-    btn.addEventListener("click", () => {
-      selectLine(line, true);
-    });
-    container.appendChild(btn);
-  });
-  selectLine(state.currentLine || LINES[0], false);
+function computeCadence(heureDebut, heureFin, quantite) {
+  if (!heureDebut || !heureFin || !quantite) return 0;
+  const [hdH, hdM] = heureDebut.split(":").map(Number);
+  const [hfH, hfM] = heureFin.split(":").map(Number);
+  let debut = hdH * 60 + hdM;
+  let fin = hfH * 60 + hfM;
+  if (isNaN(debut) || isNaN(fin) || isNaN(+quantite)) return 0;
+  // gestion passage minuit
+  if (fin < debut) fin += 24 * 60;
+  const dureeMinutes = fin - debut;
+  if (dureeMinutes <= 0) return 0;
+  const cadence = (Number(quantite) / dureeMinutes) * 60;
+  return Math.round(cadence);
 }
 
-function selectLine(line, scrollToForm) {
-  state.currentLine = line;
-  saveState();
+function updateTempsRestant(lineName) {
+  const baseId = lineName.replace(/\s+/g, "_");
+  const d = state.production[lineName].draft;
+  const tempsRestEl = document.getElementById(`tempsRestant-${baseId}`);
+  if (!tempsRestEl) return;
 
-  document.getElementById("currentLineTitle").textContent = `Ligne ${line}`;
+  const qteRest = Number(d.quantiteRestante || 0);
+  let cadence = 0;
 
-  document.querySelectorAll(".line-btn").forEach((b) => {
-    b.classList.toggle("active", b.dataset.line === line);
-  });
-
-  refreshProductionForm();
-  refreshProductionHistoryTable();
-  if (scrollToForm) {
-    const card = document.querySelector("#section-production .card");
-    if (card) {
-      card.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (d.cadenceManuelle) {
+    cadence = Number(d.cadenceManuelle) || 0;
+  } else {
+    // essayer de prendre la dernière cadence de l'historique
+    const hist = state.production[lineName].history;
+    if (hist && hist.length > 0) {
+      const last = hist[hist.length - 1];
+      cadence = Number(last.cadence) || 0;
     }
   }
-}
 
-// === PRODUCTION : FORM & CALCULS ===
-
-function getCurrentLineRecords() {
-  return state.production[state.currentLine] || [];
-}
-
-function computeCadenceFromInputs() {
-  const startStr = document.getElementById("prodStartTime").value;
-  const endStr = document.getElementById("prodEndTime").value;
-  const qty = Number(document.getElementById("prodQuantity").value) || 0;
-
-  const startMin = parseTimeToMinutes(startStr);
-  const endMin = parseTimeToMinutes(endStr);
-  if (startMin == null || endMin == null || qty <= 0) return null;
-
-  let duration = endMin - startMin;
-  if (duration <= 0) {
-    duration += 24 * 60; // gestion nuit
-  }
-  const hours = duration / 60;
-  if (hours <= 0) return null;
-  return qty / hours;
-}
-
-function computeRefCadenceForLine(line) {
-  const records = state.production[line] || [];
-  const manual = Number(document.getElementById("prodCadenceManual").value);
-  if (manual > 0) return manual;
-
-  if (!records.length) return null;
-  const lastWithCad = records.filter((r) => r.cadence && r.cadence > 0);
-  if (!lastWithCad.length) return null;
-  const last = lastWithCad[lastWithCad.length - 1];
-  return last.cadence;
-}
-
-function updateCadenceDisplay() {
-  const cad = computeCadenceFromInputs();
-  const el = document.getElementById("prodCadenceDisplay");
-  el.textContent = cad ? cad.toFixed(2) : "-";
-}
-
-function updateRemainingTimeDisplay() {
-  const qRest = Number(document.getElementById("prodRemaining").value) || 0;
-  const line = state.currentLine;
-  const cadenceRef = computeRefCadenceForLine(line);
-  const el = document.getElementById("prodRemainingTimeDisplay");
-
-  if (!qRest || !cadenceRef || cadenceRef <= 0) {
-    el.textContent = "-";
+  if (!qteRest || !cadence || cadence <= 0) {
+    tempsRestEl.textContent = "";
     return;
   }
 
-  const hours = qRest / cadenceRef;
-  const minutes = hours * 60;
-  el.textContent = formatTimeRemaining(minutes);
+  const heuresRestantes = qteRest / cadence; // heures
+  const minutesTotal = Math.round(heuresRestantes * 60);
+  const h = Math.floor(minutesTotal / 60);
+  const m = minutesTotal % 60;
+
+  tempsRestEl.textContent = `${h}h${pad2(m)} restantes (estimé)`;
 }
 
-function refreshProductionForm() {
-  // On efface les champs à chaque changement de ligne
-  document.getElementById("prodStartTime").value = "";
-  document.getElementById("prodEndTime").value = "";
-  document.getElementById("prodQuantity").value = "";
-  document.getElementById("prodRemaining").value = "";
-  document.getElementById("prodCadenceManual").value = "";
-  document.getElementById("prodArretMinutes").value = "";
-  document.getElementById("prodComment").value = "";
-  document.getElementById("prodCadenceDisplay").textContent = "-";
-  document.getElementById("prodRemainingTimeDisplay").textContent = "-";
+function enregistrerProduction(lineName) {
+  syncLineDraftFromInputs(lineName);
+  const d = state.production[lineName].draft;
+  const now = new Date();
+  const equipe = getCurrentTeam(now);
+  const week = getWeekNumber(now);
+
+  // Calcul cadence automatique
+  let cadenceAuto = computeCadence(d.heureDebut, d.heureFin, d.quantite);
+  let cadenceFinale = cadenceAuto;
+  if (d.cadenceManuelle) {
+    const man = Number(d.cadenceManuelle);
+    if (!isNaN(man) && man > 0) {
+      cadenceFinale = man;
+    }
+  }
+
+  const record = {
+    date: now.toISOString(),
+    jour: `${pad2(now.getDate())}/${pad2(now.getMonth() + 1)}/${now.getFullYear()}`,
+    heureSaisie: `${pad2(now.getHours())}h${pad2(now.getMinutes())}`,
+    semaine: week,
+    equipe,
+    ligne: lineName,
+    heureDebut: d.heureDebut,
+    heureFin: d.heureFin,
+    quantite: d.quantite,
+    quantiteRestante: d.quantiteRestante,
+    cadence: cadenceFinale,
+    cadenceAuto: cadenceAuto,
+    cadenceManuelle: d.cadenceManuelle || ""
+  };
+
+  state.production[lineName].history.push(record);
+
+  // vider les champs (draft)
+  state.production[lineName].draft = {
+    heureDebut: "",
+    heureFin: "",
+    quantite: "",
+    quantiteRestante: "",
+    cadenceManuelle: ""
+  };
+
+  saveState();
+  fillLineInputsFromDraft(lineName);
+  renderProductionHistoryForLine(lineName);
+  updateTempsRestant(lineName);
 }
 
-function refreshProductionHistoryTable() {
-  const tbody = document.getElementById("prodHistoryTable").querySelector("tbody");
+// affichage historique simple (table)
+function renderProductionHistoryForLine(lineName) {
+  const baseId = lineName.replace(/\s+/g, "_");
+  const tbody = document.getElementById(`historiqueBody-${baseId}`);
+  if (!tbody) return;
   tbody.innerHTML = "";
-  const records = getCurrentLineRecords();
-  records.forEach((rec, idx) => {
+  const hist = state.production[lineName].history || [];
+  hist.forEach((rec, idx) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${rec.dateTime}</td>
+      <td>${rec.jour} ${rec.heureSaisie}</td>
       <td>${rec.equipe}</td>
-      <td>${rec.start || "-"}</td>
-      <td>${rec.end || "-"}</td>
-      <td>${rec.quantity}</td>
-      <td>${rec.arret || 0}</td>
-      <td>${rec.cadence ? rec.cadence.toFixed(2) : "-"}</td>
-      <td>${rec.remainingTime || "-"}</td>
-      <td>${rec.comment || ""}</td>
-      <td><button class="secondary-btn" data-idx="${idx}">✕</button></td>
+      <td>${rec.heureDebut}</td>
+      <td>${rec.heureFin}</td>
+      <td>${rec.quantite}</td>
+      <td>${rec.cadence}</td>
+      <td>${rec.quantiteRestante || ""}</td>
     `;
     tbody.appendChild(tr);
   });
+}
 
-  tbody.querySelectorAll("button[data-idx]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const i = Number(btn.dataset.idx);
-      const arr = getCurrentLineRecords();
-      if (arr[i]) {
-        arr.splice(i, 1);
-        saveState();
-        refreshProductionHistoryTable();
-        refreshAtelierView();
-      }
+// =========================
+// ARRETS : LOGIQUE
+// =========================
+
+function updateArretSelectorsForLine(lineName) {
+  const selectLigne = document.getElementById("arretLigne");
+  const selectSousLigne = document.getElementById("arretSousLigne");
+  const selectMachine = document.getElementById("arretMachine");
+  if (!selectLigne || !selectMachine) return;
+
+  if (lineName) {
+    selectLigne.value = lineName;
+  } else {
+    lineName = selectLigne.value;
+  }
+
+  const config = ARRET_OPTIONS[lineName] || ARRET_OPTIONS["Autre"];
+
+  // Sous-lignes (Râpé)
+  if (selectSousLigne) {
+    if (config.sousLignes && config.sousLignes.length > 0) {
+      selectSousLigne.style.display = "";
+      selectSousLigne.innerHTML = "";
+      config.sousLignes.forEach(opt => {
+        const o = document.createElement("option");
+        o.value = opt;
+        o.textContent = opt;
+        selectSousLigne.appendChild(o);
+      });
+    } else {
+      selectSousLigne.style.display = "none";
+      selectSousLigne.innerHTML = "";
+    }
+  }
+
+  // Machines
+  selectMachine.innerHTML = "";
+  if (config.machines && config.machines.length > 0) {
+    config.machines.forEach(m => {
+      const o = document.createElement("option");
+      o.value = m;
+      o.textContent = m;
+      selectMachine.appendChild(o);
     });
-  });
+  } else {
+    const o = document.createElement("option");
+    o.value = "";
+    o.textContent = "-- Machine / source à décrire --";
+    selectMachine.appendChild(o);
+  }
 }
 
-function bindProductionForm() {
-  const startEl = document.getElementById("prodStartTime");
-  const endEl = document.getElementById("prodEndTime");
-  const qtyEl = document.getElementById("prodQuantity");
-  const qRestEl = document.getElementById("prodRemaining");
-  const cadManEl = document.getElementById("prodCadenceManual");
+function ouvrirArretDepuisLigne(lineName) {
+  currentLineForArret = lineName;
+  showSection("page-arrets");
 
-  [startEl, endEl, qtyEl].forEach((el) =>
-    el.addEventListener("input", updateCadenceDisplay)
-  );
-  [qRestEl, cadManEl].forEach((el) =>
-    el.addEventListener("input", updateRemainingTimeDisplay)
-  );
-
-  document.getElementById("prodSaveBtn").addEventListener("click", () => {
-    const now = getNow();
-    const equipe = getEquipeFromDate(now);
-    const dateTime = formatDateTime(now);
-
-    const start = startEl.value || "";
-    const end = endEl.value || "";
-    const quantity = Number(qtyEl.value) || 0;
-    const remaining = Number(qRestEl.value) || 0;
-    const arret = Number(
-      document.getElementById("prodArretMinutes").value
-    ) || 0;
-    const comment = document.getElementById("prodComment").value || "";
-    const cadMan = Number(cadManEl.value) || 0;
-    let cadence = cadMan || computeCadenceFromInputs() || null;
-
-    const cadRef = cadence || computeRefCadenceForLine(state.currentLine);
-    let remainingTimeStr = "-";
-    if (remaining > 0 && cadRef && cadRef > 0) {
-      const hours = remaining / cadRef;
-      remainingTimeStr = formatTimeRemaining(hours * 60);
-    }
-
-    const rec = {
-      dateTime,
-      equipe,
-      start,
-      end,
-      quantity,
-      arret,
-      cadence: cadence || null,
-      remainingTime: remainingTimeStr,
-      comment,
-    };
-
-    state.production[state.currentLine].push(rec);
-    saveState();
-    refreshProductionHistoryTable();
-    refreshAtelierView();
-
-    // Efface les champs après enregistrement
-    refreshProductionForm();
-  });
-
-  document.getElementById("prodUndoBtn").addEventListener("click", () => {
-    const arr = getCurrentLineRecords();
-    if (arr.length) {
-      arr.pop();
-      saveState();
-      refreshProductionHistoryTable();
-      refreshAtelierView();
-    }
-  });
+  const selectLigne = document.getElementById("arretLigne");
+  if (selectLigne) {
+    selectLigne.value = lineName;
+  }
+  updateArretSelectorsForLine(lineName);
 }
 
-// === ARRETS ===
+function enregistrerArret() {
+  const selectLigne = document.getElementById("arretLigne");
+  const selectSousLigne = document.getElementById("arretSousLigne");
+  const selectMachine = document.getElementById("arretMachine");
+  const inputDuree = document.getElementById("arretDuree");
+  const inputComment = document.getElementById("arretCommentaire");
 
-function initArretsForm() {
-  const sel = document.getElementById("arretLine");
-  sel.innerHTML = "";
-  LINES.forEach((l) => {
-    const opt = document.createElement("option");
-    opt.value = l;
-    opt.textContent = l;
-    sel.appendChild(opt);
-  });
+  if (!selectLigne || !selectMachine || !inputDuree) return;
 
-  document.getElementById("arretSaveBtn").addEventListener("click", () => {
-    const now = getNow();
-    const rec = {
-      dateTime: formatDateTime(now),
-      line: document.getElementById("arretLine").value,
-      type: document.getElementById("arretType").value,
-      duration: Number(document.getElementById("arretDuration").value) || 0,
-      comment: document.getElementById("arretComment").value || "",
-    };
-    state.arrets.push(rec);
-    saveState();
-    document.getElementById("arretDuration").value = "";
-    document.getElementById("arretComment").value = "";
-    refreshArretsView();
-    refreshAtelierView();
-  });
+  const now = new Date();
+  const equipe = getCurrentTeam(now);
+  const week = getWeekNumber(now);
+
+  const ligne = selectLigne.value || "Autre";
+  const sousLigne = selectSousLigne && selectSousLigne.style.display !== "none"
+    ? selectSousLigne.value
+    : "";
+  const machine = selectMachine.value;
+  const duree = inputDuree.value;
+  const commentaire = inputComment.value;
+
+  const rec = {
+    date: now.toISOString(),
+    jour: `${pad2(now.getDate())}/${pad2(now.getMonth() + 1)}/${now.getFullYear()}`,
+    heure: `${pad2(now.getHours())}h${pad2(now.getMinutes())}`,
+    semaine: week,
+    equipe,
+    ligne,
+    sousLigne,
+    machine,
+    duree,
+    commentaire
+  };
+
+  state.arrets.push(rec);
+  saveState();
+
+  // vider les champs
+  inputDuree.value = "";
+  if (inputComment) inputComment.value = "";
+
+  renderArretsHistory();
+
+  // retour à la ligne d'origine si défini
+  if (currentLineForArret) {
+    openLinePage(currentLineForArret);
+    currentLineForArret = null;
+  }
 }
 
-function refreshArretsView() {
-  const tbody = document
-    .getElementById("arretsHistoryTable")
-    .querySelector("tbody");
+function renderArretsHistory() {
+  const tbody = document.getElementById("arretsHistoriqueBody");
+  if (!tbody) return;
   tbody.innerHTML = "";
-  state.arrets.forEach((rec) => {
+  state.arrets.forEach(rec => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${rec.dateTime}</td>
-      <td>${rec.line}</td>
-      <td>${rec.type}</td>
-      <td>${rec.duration}</td>
-      <td>${rec.comment || ""}</td>
+      <td>${rec.jour} ${rec.heure}</td>
+      <td>${rec.equipe}</td>
+      <td>${rec.ligne}${rec.sousLigne ? " / " + rec.sousLigne : ""}</td>
+      <td>${rec.machine || ""}</td>
+      <td>${rec.duree}</td>
+      <td>${rec.commentaire || ""}</td>
     `;
     tbody.appendChild(tr);
   });
 }
 
-// === ORGANISATION / CONSIGNES ===
+// =========================
+// ORGANISATION / PERSONNEL (VERSION SIMPLE)
+// =========================
 
-function bindOrganisationForm() {
-  document.getElementById("orgSaveBtn").addEventListener("click", () => {
-    const now = getNow();
-    const rec = {
-      dateTime: formatDateTime(now),
-      equipe: getEquipeFromDate(now),
-      consigne: document.getElementById("orgConsigne").value || "",
-      visa: document.getElementById("orgVisa").value || "",
-      valide: false,
-    };
-    state.organisation.push(rec);
-    saveState();
-    document.getElementById("orgConsigne").value = "";
-    document.getElementById("orgVisa").value = "";
-    refreshOrganisationView();
-  });
+function enregistrerConsigne() {
+  const inputTexte = document.getElementById("consigneTexte");
+  const inputVisa = document.getElementById("consigneVisa");
+  if (!inputTexte || !inputVisa) return;
+  const texte = inputTexte.value.trim();
+  const visa = inputVisa.value.trim();
+  if (!texte) return;
+  const now = new Date();
+  const week = getWeekNumber(now);
+  const rec = {
+    date: now.toISOString(),
+    jour: `${pad2(now.getDate())}/${pad2(now.getMonth() + 1)}/${now.getFullYear()}`,
+    semaine: week,
+    heure: `${pad2(now.getHours())}h${pad2(now.getMinutes())}`,
+    texte,
+    visa,
+    valide: false
+  };
+  state.organisation.push(rec);
+  saveState();
+  inputTexte.value = "";
+  inputVisa.value = "";
+  renderOrganisationHistory();
 }
 
-function refreshOrganisationView() {
-  const tbody = document
-    .getElementById("orgHistoryTable")
-    .querySelector("tbody");
+function toggleConsigneValide(index) {
+  const rec = state.organisation[index];
+  if (!rec) return;
+  rec.valide = !rec.valide;
+  saveState();
+  renderOrganisationHistory();
+}
+
+function renderOrganisationHistory() {
+  const tbody = document.getElementById("organisationHistoriqueBody");
+  if (!tbody) return;
   tbody.innerHTML = "";
   state.organisation.forEach((rec, idx) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${rec.dateTime}</td>
-      <td>${rec.equipe}</td>
-      <td>${rec.consigne}</td>
+      <td>${rec.jour} ${rec.heure}</td>
+      <td>${rec.texte}</td>
       <td>${rec.visa}</td>
       <td>
-        <button class="secondary-btn" data-idx="${idx}">
-          ${rec.valide ? "✅" : "❌"}
-        </button>
+        <label>
+          <input type="checkbox" ${rec.valide ? "checked" : ""} onclick="toggleConsigneValide(${idx})">
+          Validée
+        </label>
       </td>
     `;
     tbody.appendChild(tr);
   });
-
-  tbody.querySelectorAll("button[data-idx]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const i = Number(btn.dataset.idx);
-      const rec = state.organisation[i];
-      if (!rec) return;
-      rec.valide = !rec.valide;
-      saveState();
-      refreshOrganisationView();
-    });
-  });
 }
 
-// === PERSONNEL ===
-
-function bindPersonnelForm() {
-  document.getElementById("persSaveBtn").addEventListener("click", () => {
-    const now = getNow();
-    const rec = {
-      dateTime: formatDateTime(now),
-      equipe: getEquipeFromDate(now),
-      nom: document.getElementById("persNom").value || "",
-      motif: document.getElementById("persMotif").value || "",
-      comment: document.getElementById("persComment").value || "",
-    };
-    state.personnel.push(rec);
-    saveState();
-    document.getElementById("persNom").value = "";
-    document.getElementById("persComment").value = "";
-    refreshPersonnelView();
-  });
+function enregistrerPersonnel() {
+  const inputNom = document.getElementById("persNom");
+  const selectMotif = document.getElementById("persMotif");
+  const inputComment = document.getElementById("persCommentaire");
+  if (!inputNom || !selectMotif) return;
+  const nom = inputNom.value.trim();
+  const motif = selectMotif.value;
+  const commentaire = inputComment ? inputComment.value.trim() : "";
+  if (!nom || !motif) return;
+  const now = new Date();
+  const week = getWeekNumber(now);
+  const rec = {
+    date: now.toISOString(),
+    jour: `${pad2(now.getDate())}/${pad2(now.getMonth() + 1)}/${now.getFullYear()}`,
+    semaine: week,
+    heure: `${pad2(now.getHours())}h${pad2(now.getMinutes())}`,
+    nom,
+    motif,
+    commentaire
+  };
+  state.personnel.push(rec);
+  saveState();
+  inputNom.value = "";
+  if (inputComment) inputComment.value = "";
+  renderPersonnelHistory();
 }
 
-function refreshPersonnelView() {
-  const tbody = document
-    .getElementById("persHistoryTable")
-    .querySelector("tbody");
+function renderPersonnelHistory() {
+  const tbody = document.getElementById("personnelHistoriqueBody");
+  if (!tbody) return;
   tbody.innerHTML = "";
-  state.personnel.forEach((rec) => {
+  state.personnel.forEach(rec => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td>${rec.dateTime}</td>
-      <td>${rec.equipe}</td>
+      <td>${rec.jour} ${rec.heure}</td>
       <td>${rec.nom}</td>
       <td>${rec.motif}</td>
-      <td>${rec.comment}</td>
+      <td>${rec.commentaire || ""}</td>
     `;
     tbody.appendChild(tr);
   });
 }
 
-// === ATELIER (vue globale) ===
+// =========================
+// INIT
+// =========================
 
-let atelierChart = null;
-
-function refreshAtelierView() {
-  // Résumé par ligne (total qtés et cadence moyenne)
-  const container = document.getElementById("atelier-lines-summary");
-  container.innerHTML = "";
-  LINES.forEach((line) => {
-    const records = state.production[line] || [];
-    const totalQty = records.reduce((sum, r) => sum + (r.quantity || 0), 0);
-    const cadences = records.map((r) => r.cadence).filter((c) => c && c > 0);
-    const avgCad =
-      cadences.length > 0
-        ? cadences.reduce((s, c) => s + c, 0) / cadences.length
-        : 0;
-
-    const div = document.createElement("div");
-    div.className = "summary-card";
-    div.innerHTML = `
-      <div class="summary-card-title">${line}</div>
-      <div class="summary-main">${totalQty} colis</div>
-      <div class="summary-sub">Cadence moy. ${
-        avgCad ? avgCad.toFixed(1) : "-"
-      } colis/h</div>
-    `;
-    container.appendChild(div);
-  });
-
-  // Tableau arrêts sur Atelier (trié par durée)
-  const tbody = document
-    .getElementById("atelier-arrets-table")
-    .querySelector("tbody");
-  tbody.innerHTML = "";
-  const arretsSorted = [...state.arrets].sort(
-    (a, b) => (b.duration || 0) - (a.duration || 0)
-  );
-  arretsSorted.forEach((rec) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${rec.line}</td>
-      <td>${rec.type}</td>
-      <td>${rec.duration}</td>
-      <td>${rec.comment || ""}</td>
-    `;
-    tbody.appendChild(tr);
-  });
-
-  // Graphique d’évolution des cadences (une courbe par ligne)
-  const ctx = document.getElementById("atelierChart");
-  if (!ctx) return;
-
-  const labels = []; // indices d’enregistrements (ou dates simplifiées)
-  const datasets = [];
-  LINES.forEach((line, idx) => {
-    const records = state.production[line] || [];
-    if (!records.length) return;
-
-    const lineLabels = [];
-    const data = [];
-    records.forEach((r, i) => {
-      lineLabels.push(i + 1);
-      data.push(r.cadence || null);
-    });
-
-    // On se base sur le plus long jeu d’étiquettes
-    if (lineLabels.length > labels.length) {
-      labels.length = 0;
-      lineLabels.forEach((l) => labels.push(l));
-    }
-
-    datasets.push({
-      label: line,
-      data,
-      tension: 0.3,
-      borderWidth: 2,
-      spanGaps: true,
+function initEventListeners() {
+  // nav
+  document.querySelectorAll(".nav-button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const target = btn.getAttribute("data-target");
+      if (target) showSection(target);
     });
   });
 
-  if (atelierChart) {
-    atelierChart.destroy();
+  // boutons de lignes (pour aller au bloc de la ligne)
+  document.querySelectorAll(".line-button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const line = btn.getAttribute("data-line");
+      if (line) openLinePage(line);
+    });
+  });
+
+  // boutons "Arrêt" sur chaque ligne
+  document.querySelectorAll(".btn-arret-ligne").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const line = btn.getAttribute("data-line");
+      if (line) ouvrirArretDepuisLigne(line);
+    });
+  });
+
+  // changement de ligne sur la page arrêts
+  const arretLigne = document.getElementById("arretLigne");
+  if (arretLigne) {
+    arretLigne.addEventListener("change", (e) => {
+      updateArretSelectorsForLine(e.target.value);
+    });
   }
 
-  atelierChart = new Chart(ctx, {
-    type: "line",
-    data: {
-      labels,
-      datasets,
-    },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: {
-          labels: {
-            color: "#e5ecff",
-          },
-        },
-      },
-      scales: {
-        x: {
-          ticks: {
-            color: "#9aa7c5",
-          },
-          grid: {
-            color: "rgba(255,255,255,0.05)",
-          },
-        },
-        y: {
-          ticks: {
-            color: "#9aa7c5",
-          },
-          grid: {
-            color: "rgba(255,255,255,0.05)",
-          },
-        },
-      },
-    },
-  });
-}
-
-// === EXPORT EXCEL GLOBAL ===
-
-function bindExportGlobal() {
-  const btn = document.getElementById("exportGlobalBtn");
-  btn.addEventListener("click", () => {
-    const now = getNow();
-    const hh = String(now.getHours()).padStart(2, "0");
-    const mm = String(now.getMinutes()).padStart(2, "0");
-    const ss = String(now.getSeconds()).padStart(2, "0");
-    const filename = `Atelier_PPNC_${hh}h${mm}_${ss}.xlsx`;
-
-    const wb = XLSX.utils.book_new();
-
-    // Sheet Production
-    const prodRows = [["Ligne", "Date/Heure", "Équipe", "Début", "Fin", "Qté", "Arrêt (min)", "Cadence", "Temps restant", "Commentaire"]];
-    LINES.forEach((line) => {
-      (state.production[line] || []).forEach((r) => {
-        prodRows.push([
-          line,
-          r.dateTime,
-          r.equipe,
-          r.start,
-          r.end,
-          r.quantity,
-          r.arret,
-          r.cadence || "",
-          r.remainingTime || "",
-          r.comment || "",
-        ]);
-      });
+  // bouton enregistrer arrêt
+  const btnSaveArret = document.getElementById("btnEnregistrerArret");
+  if (btnSaveArret) {
+    btnSaveArret.addEventListener("click", () => {
+      enregistrerArret();
     });
-    const wsProd = XLSX.utils.aoa_to_sheet(prodRows);
-    XLSX.utils.book_append_sheet(wb, wsProd, "Production");
-
-    // Sheet Arrêts
-    const arrRows = [["Date/Heure", "Ligne", "Type", "Durée (min)", "Commentaire"]];
-    state.arrets.forEach((r) => {
-      arrRows.push([r.dateTime, r.line, r.type, r.duration, r.comment || ""]);
-    });
-    const wsArr = XLSX.utils.aoa_to_sheet(arrRows);
-    XLSX.utils.book_append_sheet(wb, wsArr, "Arrêts");
-
-    // Sheet Organisation
-    const orgRows = [["Date/Heure", "Équipe", "Consigne", "Visa", "Validée"]];
-    state.organisation.forEach((r) => {
-      orgRows.push([
-        r.dateTime,
-        r.equipe,
-        r.consigne,
-        r.visa,
-        r.valide ? "Oui" : "Non",
-      ]);
-    });
-    const wsOrg = XLSX.utils.aoa_to_sheet(orgRows);
-    XLSX.utils.book_append_sheet(wb, wsOrg, "Organisation");
-
-    // Sheet Personnel
-    const persRows = [["Date/Heure", "Équipe", "Nom", "Motif", "Commentaire"]];
-    state.personnel.forEach((r) => {
-      persRows.push([r.dateTime, r.equipe, r.nom, r.motif, r.comment || ""]);
-    });
-    const wsPers = XLSX.utils.aoa_to_sheet(persRows);
-    XLSX.utils.book_append_sheet(wb, wsPers, "Personnel");
-
-    XLSX.writeFile(wb, filename);
-  });
-}
-
-// === CALCULATRICE ===
-
-function initCalculator() {
-  const calc = document.getElementById("calculator");
-  const toggle = document.getElementById("calcToggle");
-  const closeBtn = document.getElementById("calcCloseBtn");
-  const display = document.getElementById("calcDisplay");
-  let expr = "";
-
-  function refresh() {
-    display.value = expr;
   }
 
-  toggle.addEventListener("click", () => {
-    calc.classList.toggle("hidden");
+  // boutons enregistrer production
+  document.querySelectorAll(".btn-enregistrer-production").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const line = btn.getAttribute("data-line");
+      if (!line) return;
+      enregistrerProduction(line);
+    });
   });
 
-  closeBtn.addEventListener("click", () => {
-    calc.classList.add("hidden");
-  });
-
-  calc.querySelectorAll(".calc-btn").forEach((btn) => {
-    const val = btn.dataset.value;
-    const action = btn.dataset.action;
-    if (action === "clear") {
-      btn.addEventListener("click", () => {
-        expr = "";
-        refresh();
-      });
-    } else if (action === "equals") {
-      btn.addEventListener("click", () => {
-        if (!expr.trim()) return;
-        try {
-          // simple éval, usage local
-          // eslint-disable-next-line no-eval
-          const result = eval(expr);
-          expr = String(result);
-          refresh();
-        } catch {
-          expr = "Erreur";
-          refresh();
-        }
-      });
-    } else if (val) {
-      btn.addEventListener("click", () => {
-        expr += val;
-        refresh();
+  // inputs quantité restante pour recalcul temps restant
+  LINES.forEach(line => {
+    const baseId = line.replace(/\s+/g, "_");
+    const inputQteRest = document.getElementById(`quantiteRestante-${baseId}`);
+    if (inputQteRest) {
+      inputQteRest.addEventListener("input", () => {
+        syncLineDraftFromInputs(line);
+        updateTempsRestant(line);
+        saveState();
       });
     }
-  });
-}
-
-// === VALIDATION DDM ===
-
-function bindDDM() {
-  const btn = document.getElementById("ddmCalcBtn");
-  const out = document.getElementById("ddmResult");
-  const qInput = document.getElementById("ddmQuantieme");
-  const aInput = document.getElementById("ddmAnnee");
-  const dInput = document.getElementById("ddmDuree");
-
-  // Valeur par défaut année : année courante
-  aInput.value = new Date().getFullYear();
-
-  btn.addEventListener("click", () => {
-    const q = Number(qInput.value);
-    const annee = Number(aInput.value) || new Date().getFullYear();
-    const dj = Number(dInput.value);
-
-    if (!q || q < 1 || q > 366 || !Number.isFinite(dj) || dj < 0) {
-      out.textContent = "Entrées invalides";
-      return;
+    const cadenceManuelle = document.getElementById(`cadenceManuelle-${baseId}`);
+    if (cadenceManuelle) {
+      cadenceManuelle.addEventListener("input", () => {
+        syncLineDraftFromInputs(line);
+        updateTempsRestant(line);
+        saveState();
+      });
     }
 
-    const base = new Date(annee, 0, 1);
-    base.setDate(q);
-    base.setDate(base.getDate() + dj);
-    const dd = String(base.getDate()).padStart(2, "0");
-    const mm = String(base.getMonth() + 1).padStart(2, "0");
-    const yyyy = base.getFullYear();
-    out.textContent = `${dd}/${mm}/${yyyy}`;
+    const hDeb = document.getElementById(`heureDebut-${baseId}`);
+    const hFin = document.getElementById(`heureFin-${baseId}`);
+    const qte = document.getElementById(`quantite-${baseId}`);
+    [hDeb, hFin, qte].forEach(inp => {
+      if (inp) {
+        inp.addEventListener("input", () => {
+          syncLineDraftFromInputs(line);
+          saveState();
+        });
+      }
+    });
   });
-}
 
-// === INIT GLOBALE ===
+  // Organisation
+  const btnSaveConsigne = document.getElementById("btnEnregistrerConsigne");
+  if (btnSaveConsigne) {
+    btnSaveConsigne.addEventListener("click", enregistrerConsigne);
+  }
+
+  // Personnel
+  const btnSavePersonnel = document.getElementById("btnEnregistrerPersonnel");
+  if (btnSavePersonnel) {
+    btnSavePersonnel.addEventListener("click", enregistrerPersonnel);
+  }
+
+  // Calculatrice (si elle existe déjà dans ton HTML)
+  const calcToggle = document.getElementById("calcToggle");
+  const calcPanel = document.getElementById("calcPanel");
+  if (calcToggle && calcPanel) {
+    calcToggle.addEventListener("click", () => {
+      calcPanel.classList.toggle("open");
+    });
+  }
+}
 
 document.addEventListener("DOMContentLoaded", () => {
   loadState();
   initHeaderDate();
-  initNav();
-  initLinesSidebar();
-  bindProductionForm();
-  initArretsForm();
-  bindOrganisationForm();
-  bindPersonnelForm();
-  bindExportGlobal();
-  initCalculator();
-  bindDDM();
 
-  // Affiche la section actuelle ou Atelier par défaut
-  showSection(state.currentSection || "atelier");
+  // Remplir les formulaires des lignes avec les brouillons
+  LINES.forEach(line => {
+    fillLineInputsFromDraft(line);
+    renderProductionHistoryForLine(line);
+  });
+
+  renderArretsHistory();
+  renderOrganisationHistory();
+  renderPersonnelHistory();
+
+  initEventListeners();
+
+  // initialiser la page Arrêts avec Râpé par défaut
+  const arretLigne = document.getElementById("arretLigne");
+  if (arretLigne) {
+    updateArretSelectorsForLine(arretLigne.value || "Râpé");
+  }
+
+  // page par défaut : Atelier ou Production selon ton choix
+  showSection("page-atelier");
 });
- 
+    
