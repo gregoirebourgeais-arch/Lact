@@ -15,6 +15,94 @@ const LINES = [
 
 const STORAGE_KEY = "atelier_ppnc_state_v1";
 
+// Sous-lignes pour Râpé (Arrêts)
+const ARRET_SUBLINES = {
+  "Râpé": ["R1", "R2", "R1/R2"],
+};
+
+// Listes machines EXACTEMENT comme dans ton Word
+const ARRET_MACHINES = {
+  "Râpé": [
+    "Cubeuse",
+    "Cheesix",
+    "Liftvrac",
+    "Associative",
+    "Ensacheuse",
+    "Encaisseuse",
+    "Smartdate",
+    "Bizerba",
+    "DPM",
+    "Scotcheuse",
+    "Markem",
+    "Ascenseur",
+  ],
+  "T2": [
+    "Selvex",
+    "Trieuse",
+    "Robots",
+    "Tiromat",
+    "Vision",
+    "Convoyeur",
+    "DPM",
+    "Bizerba",
+    "Surremballage",
+    "Markem",
+    "Scotcheuse",
+    "Balance cartons",
+    "Formeuse caisse",
+    "Ascenseur",
+  ],
+  "OMORI": [
+    "BFR",
+    "Accumulateur",
+    "OMORI",
+    "Videojet",
+    "DPM",
+    "Encaisseuse",
+    "Balance cartons",
+    "Ascenseur",
+  ],
+  "Emballage": [
+    "Brinkman",
+    "Encaisseuse",
+    "Bizerba",
+    "Palettiseur",
+    "Paraffineuse",
+    "Râpé",
+    "Ecrottage",
+    "Alpma",
+  ],
+  "T1": [
+    "Lieuse",
+    "C-Pack",
+    "Etiqueteuse",
+    "Scotcheuse",
+  ],
+  "Dés": [
+    "Cheesix",
+    "Meca 2002",
+    "DPM",
+    "Bizerba",
+    "Scotcheuse",
+  ],
+  "Filets": [
+    "Lieuse",
+    "C-Pack",
+    "Etiqueteuse",
+    "Scotcheuse",
+  ],
+  "Prédécoupé": [
+    "Chelux",
+    "Selvex",
+    "Bizerba",
+    "Quartivac",
+    "Scotcheuse",
+  ],
+  // RT / Sticks : pas listé dans le Word, on met juste "Autre"
+  "RT": ["Autre"],
+  "Sticks": ["Autre"],
+};
+
 let state = {
   currentSection: "atelier",
   currentLine: LINES[0],
@@ -24,29 +112,11 @@ let state = {
   personnel: [], // [{...}]
 };
 
-// Pour gérer le retour à la ligne après un arrêt déclenché depuis la page production
-let pendingArretReturnLine = null;
-
-// === LISTES SPÉCIALES POUR ARRÊTS (DOC WORD) ===
-
-// Pour RÂPÉ : sous-zones et machines EXACTEMENT comme tu les as donnés
-const RAPE_SOUS_ZONES = ["R1", "R2", "R1 + R2"];
-
-const RAPE_MACHINES = [
-  "Cubeuse",
-  "Chizix",
-  "Bizerba",
-  "DPM",
-  "Balance",
-  "Associative",
-  "SmartDate",
-  "Scotches",
-  "Marquem",
-  "Ascenseur",
-];
-
-// Pour les autres lignes : zones génériques
-const GENERIC_ZONES = ["Découpe", "Packing", "MEC"];
+// Références globales pour la page Arrêts (pour pouvoir l’ouvrir depuis Production)
+let arretLineEl = null;
+let arretSousZoneEl = null;
+let arretSousZoneRowEl = null;
+let arretMachineEl = null;
 
 // === UTILITAIRES DATE / HEURE / ÉQUIPE ===
 
@@ -143,8 +213,6 @@ function saveState() {
 
 function initHeaderDate() {
   const el = document.getElementById("header-datetime");
-  if (!el) return;
-
   function update() {
     const now = getNow();
     const week = getWeekNumber(now);
@@ -204,7 +272,6 @@ function initNav() {
 
 function initLinesSidebar() {
   const container = document.getElementById("linesList");
-  if (!container) return;
   container.innerHTML = "";
   LINES.forEach((line) => {
     const btn = document.createElement("button");
@@ -223,10 +290,7 @@ function selectLine(line, scrollToForm) {
   state.currentLine = line;
   saveState();
 
-  const title = document.getElementById("currentLineTitle");
-  if (title) {
-    title.textContent = `Ligne ${line}`;
-  }
+  document.getElementById("currentLineTitle").textContent = `Ligne ${line}`;
 
   document.querySelectorAll(".line-btn").forEach((b) => {
     b.classList.toggle("active", b.dataset.line === line);
@@ -249,9 +313,9 @@ function getCurrentLineRecords() {
 }
 
 function computeCadenceFromInputs() {
-  const startStr = document.getElementById("prodStartTime")?.value;
-  const endStr = document.getElementById("prodEndTime")?.value;
-  const qty = Number(document.getElementById("prodQuantity")?.value) || 0;
+  const startStr = document.getElementById("prodStartTime").value;
+  const endStr = document.getElementById("prodEndTime").value;
+  const qty = Number(document.getElementById("prodQuantity").value) || 0;
 
   const startMin = parseTimeToMinutes(startStr);
   const endMin = parseTimeToMinutes(endStr);
@@ -266,17 +330,11 @@ function computeCadenceFromInputs() {
   return qty / hours;
 }
 
-// Cadence de référence pour calcul du temps restant
 function computeRefCadenceForLine(line) {
   const records = state.production[line] || [];
-  const manual = Number(document.getElementById("prodCadenceManual")?.value);
+  const manual = Number(document.getElementById("prodCadenceManual").value);
   if (manual > 0) return manual;
 
-  // On essaye d'abord la cadence en cours (champs début/fin/quantité)
-  const currentCad = computeCadenceFromInputs();
-  if (currentCad && currentCad > 0) return currentCad;
-
-  // Sinon la dernière cadence historisée
   if (!records.length) return null;
   const lastWithCad = records.filter((r) => r.cadence && r.cadence > 0);
   if (!lastWithCad.length) return null;
@@ -287,18 +345,14 @@ function computeRefCadenceForLine(line) {
 function updateCadenceDisplay() {
   const cad = computeCadenceFromInputs();
   const el = document.getElementById("prodCadenceDisplay");
-  if (!el) return;
   el.textContent = cad ? cad.toFixed(2) : "-";
 }
 
 function updateRemainingTimeDisplay() {
-  const qRestEl = document.getElementById("prodRemaining");
-  const el = document.getElementById("prodRemainingTimeDisplay");
-  if (!qRestEl || !el) return;
-
-  const qRest = Number(qRestEl.value) || 0;
+  const qRest = Number(document.getElementById("prodRemaining").value) || 0;
   const line = state.currentLine;
   const cadenceRef = computeRefCadenceForLine(line);
+  const el = document.getElementById("prodRemainingTimeDisplay");
 
   if (!qRest || !cadenceRef || cadenceRef <= 0) {
     el.textContent = "-";
@@ -311,30 +365,20 @@ function updateRemainingTimeDisplay() {
 }
 
 function refreshProductionForm() {
-  const fields = [
-    "prodStartTime",
-    "prodEndTime",
-    "prodQuantity",
-    "prodRemaining",
-    "prodCadenceManual",
-    "prodArretMinutes",
-    "prodComment",
-  ];
-  fields.forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) el.value = "";
-  });
-
-  const cadEl = document.getElementById("prodCadenceDisplay");
-  const remEl = document.getElementById("prodRemainingTimeDisplay");
-  if (cadEl) cadEl.textContent = "-";
-  if (remEl) remEl.textContent = "-";
+  // On efface les champs à chaque changement de ligne ou après save
+  document.getElementById("prodStartTime").value = "";
+  document.getElementById("prodEndTime").value = "";
+  document.getElementById("prodQuantity").value = "";
+  document.getElementById("prodRemaining").value = "";
+  document.getElementById("prodCadenceManual").value = "";
+  document.getElementById("prodArretMinutes").value = "";
+  document.getElementById("prodComment").value = "";
+  document.getElementById("prodCadenceDisplay").textContent = "-";
+  document.getElementById("prodRemainingTimeDisplay").textContent = "-";
 }
 
 function refreshProductionHistoryTable() {
-  const table = document.getElementById("prodHistoryTable");
-  if (!table) return;
-  const tbody = table.querySelector("tbody");
+  const tbody = document.getElementById("prodHistoryTable").querySelector("tbody");
   tbody.innerHTML = "";
   const records = getCurrentLineRecords();
   records.forEach((rec, idx) => {
@@ -366,8 +410,7 @@ function refreshProductionHistoryTable() {
       }
     });
   });
-}
-
+    }
 function bindProductionForm() {
   const startEl = document.getElementById("prodStartTime");
   const endEl = document.getElementById("prodEndTime");
@@ -377,222 +420,177 @@ function bindProductionForm() {
   const arretEl = document.getElementById("prodArretMinutes");
 
   [startEl, endEl, qtyEl].forEach((el) =>
-    el && el.addEventListener("input", () => {
-      updateCadenceDisplay();
-      updateRemainingTimeDisplay();
-    })
+    el.addEventListener("input", updateCadenceDisplay)
   );
   [qRestEl, cadManEl].forEach((el) =>
-    el && el.addEventListener("input", updateRemainingTimeDisplay)
+    el.addEventListener("input", updateRemainingTimeDisplay)
   );
 
-  // Si on touche au champ arrêt, on prépare le renvoi vers la page Arrêts
-  if (arretEl) {
-    arretEl.addEventListener("input", () => {
-      const val = Number(arretEl.value) || 0;
-      if (val > 0) {
-        pendingArretReturnLine = state.currentLine;
-        // Pré-remplir le formulaire Arrêts
-        const selLine = document.getElementById("arretLine");
-        const dur = document.getElementById("arretDuration");
-        if (selLine) selLine.value = state.currentLine;
-        if (dur) dur.value = val;
-        // On laisse l'utilisateur appuyer sur "Enregistrer" pour l'arrêt
-      } else {
-        pendingArretReturnLine = null;
-      }
-    });
-  }
+  document.getElementById("prodSaveBtn").addEventListener("click", () => {
+    const now = getNow();
+    const equipe = getEquipeFromDate(now);
+    const dateTime = formatDateTime(now);
 
-  const saveBtn = document.getElementById("prodSaveBtn");
-  if (saveBtn) {
-    saveBtn.addEventListener("click", () => {
-      const now = getNow();
-      const equipe = getEquipeFromDate(now);
-      const dateTime = formatDateTime(now);
+    const start = startEl.value || "";
+    const end = endEl.value || "";
+    const quantity = Number(qtyEl.value) || 0;
+    const remaining = Number(qRestEl.value) || 0;
+    const arretMinutes = Number(arretEl.value) || 0;
+    const comment = document.getElementById("prodComment").value || "";
+    const cadMan = Number(cadManEl.value) || 0;
+    let cadence = cadMan || computeCadenceFromInputs() || null;
 
-      const start = startEl?.value || "";
-      const end = endEl?.value || "";
-      const quantity = Number(qtyEl?.value) || 0;
-      const remaining = Number(qRestEl?.value) || 0;
-      const arret = Number(arretEl?.value) || 0;
-      const comment =
-        document.getElementById("prodComment")?.value || "";
-      const cadMan = Number(cadManEl?.value) || 0;
+    const cadRef = cadence || computeRefCadenceForLine(state.currentLine);
+    let remainingTimeStr = "-";
+    if (remaining > 0 && cadRef && cadRef > 0) {
+      const hours = remaining / cadRef;
+      remainingTimeStr = formatTimeRemaining(hours * 60);
+    }
 
-      let cadence = cadMan || computeCadenceFromInputs() || null;
-      const cadRef = cadence || computeRefCadenceForLine(state.currentLine);
+    const rec = {
+      dateTime,
+      equipe,
+      start,
+      end,
+      quantity,
+      arret: arretMinutes,
+      cadence: cadence || null,
+      remainingTime: remainingTimeStr,
+      comment,
+    };
 
-      let remainingTimeStr = "-";
-      if (remaining > 0 && cadRef && cadRef > 0) {
-        const hours = remaining / cadRef;
-        remainingTimeStr = formatTimeRemaining(hours * 60);
-      }
+    state.production[state.currentLine].push(rec);
+    saveState();
+    refreshProductionHistoryTable();
+    refreshAtelierView();
 
-      const rec = {
-        dateTime,
-        equipe,
-        start,
-        end,
-        quantity,
-        arret,
-        cadence: cadence || null,
-        remainingTime: remainingTimeStr,
-        comment,
-      };
+    // Efface les champs après enregistrement
+    refreshProductionForm();
 
-      state.production[state.currentLine].push(rec);
+    // Si un arrêt a été saisi, on ouvre la page Arrêts pré-remplie
+    if (arretMinutes > 0) {
+      openArretFromProduction(state.currentLine, arretMinutes);
+    }
+  });
+
+  document.getElementById("prodUndoBtn").addEventListener("click", () => {
+    const arr = getCurrentLineRecords();
+    if (arr.length) {
+      arr.pop();
       saveState();
       refreshProductionHistoryTable();
       refreshAtelierView();
-
-      // Efface les champs après enregistrement
-      refreshProductionForm();
-
-      // Si on a saisi un arrêt, on bascule tout de suite sur la page Arrêts
-      if (arret > 0) {
-        pendingArretReturnLine = state.currentLine;
-        const selLine = document.getElementById("arretLine");
-        const dur = document.getElementById("arretDuration");
-        if (selLine) selLine.value = state.currentLine;
-        if (dur) dur.value = arret;
-        showSection("arrets");
-      }
-    });
-  }
-
-  const undoBtn = document.getElementById("prodUndoBtn");
-  if (undoBtn) {
-    undoBtn.addEventListener("click", () => {
-      const arr = getCurrentLineRecords();
-      if (arr.length) {
-        arr.pop();
-        saveState();
-        refreshProductionHistoryTable();
-        refreshAtelierView();
-      }
-    });
-  }
+    }
+  });
 }
 
 // === ARRETS ===
 
-function initArretsForm() {
-  const selLine = document.getElementById("arretLine");
-  if (!selLine) return;
-  selLine.innerHTML = "";
-  LINES.forEach((l) => {
+// Met à jour la sous-ligne & la liste machines selon la ligne sélectionnée
+function updateArretControlsForLine() {
+  if (!arretLineEl || !arretMachineEl) return;
+
+  const line = arretLineEl.value;
+
+  // Sous-ligne uniquement pour Râpé
+  if (arretSousZoneRowEl && arretSousZoneEl) {
+    if (line === "Râpé") {
+      arretSousZoneRowEl.style.display = "";
+      const subs = ARRET_SUBLINES["Râpé"] || [];
+      arretSousZoneEl.innerHTML = "";
+      subs.forEach((s) => {
+        const opt = document.createElement("option");
+        opt.value = s;
+        opt.textContent = s;
+        arretSousZoneEl.appendChild(opt);
+      });
+    } else {
+      arretSousZoneRowEl.style.display = "none";
+      arretSousZoneEl.innerHTML = "";
+    }
+  }
+
+  // Machines par ligne
+  const machines = ARRET_MACHINES[line] || ["Autre"];
+  arretMachineEl.innerHTML = "";
+  machines.forEach((m) => {
     const opt = document.createElement("option");
-    opt.value = l;
-    opt.textContent = l;
-    selLine.appendChild(opt);
+    opt.value = m;
+    opt.textContent = m;
+    arretMachineEl.appendChild(opt);
   });
+}
 
-  const sousZoneSelect = document.getElementById("arretSousZone");
-  const machineSelect = document.getElementById("arretMachine");
+function initArretsForm() {
+  arretLineEl = document.getElementById("arretLine");
+  arretSousZoneEl = document.getElementById("arretSousZone");
+  arretMachineEl = document.getElementById("arretMachine");
+  arretSousZoneRowEl =
+    arretSousZoneEl && arretSousZoneEl.closest(".form-row");
 
-  function fillArretSelectors() {
-    const currentLine = selLine.value;
-
-    if (sousZoneSelect) {
-      sousZoneSelect.innerHTML = "";
-      let values = [];
-
-      if (currentLine === "Râpé") {
-        values = RAPE_SOUS_ZONES;
-      } else {
-        values = GENERIC_ZONES;
-      }
-
-      values.forEach((v) => {
-        const opt = document.createElement("option");
-        opt.value = v;
-        opt.textContent = v;
-        sousZoneSelect.appendChild(opt);
-      });
-    }
-
-    if (machineSelect) {
-      machineSelect.innerHTML = "";
-      let machines = [];
-
-      if (currentLine === "Râpé") {
-        machines = RAPE_MACHINES;
-      } else {
-        // Pour les autres lignes, on laisse simple
-        machines = ["Ligne complète"];
-      }
-
-      machines.forEach((m) => {
-        const opt = document.createElement("option");
-        opt.value = m;
-        opt.textContent = m;
-        machineSelect.appendChild(opt);
-      });
-    }
-  }
-
-  selLine.addEventListener("change", fillArretSelectors);
-  fillArretSelectors();
-
-  const saveBtn = document.getElementById("arretSaveBtn");
-  if (saveBtn) {
-    saveBtn.addEventListener("click", () => {
-      const now = getNow();
-      const line = selLine.value;
-      const duration =
-        Number(document.getElementById("arretDuration")?.value) || 0;
-      const comment =
-        document.getElementById("arretComment")?.value || "";
-
-      let sousZone =
-        sousZoneSelect?.value || "";
-      let machine =
-        machineSelect?.value || "";
-
-      const rec = {
-        dateTime: formatDateTime(now),
-        line,
-        sousZone,
-        machine,
-        duration,
-        comment,
-      };
-
-      state.arrets.push(rec);
-      saveState();
-
-      const durEl = document.getElementById("arretDuration");
-      const comEl = document.getElementById("arretComment");
-      if (durEl) durEl.value = "";
-      if (comEl) comEl.value = "";
-
-      refreshArretsView();
-      refreshAtelierView();
-
-      // Si on vient d'un arrêt déclenché depuis une ligne de production
-      if (pendingArretReturnLine) {
-        const retour = pendingArretReturnLine;
-        pendingArretReturnLine = null;
-        selectLine(retour, true);
-        showSection("production");
-      }
+  // Remplir la liste des lignes
+  if (arretLineEl) {
+    arretLineEl.innerHTML = "";
+    LINES.forEach((l) => {
+      const opt = document.createElement("option");
+      opt.value = l;
+      opt.textContent = l;
+      arretLineEl.appendChild(opt);
     });
+
+    arretLineEl.addEventListener("change", updateArretControlsForLine);
   }
+
+  // Première initialisation des listes
+  updateArretControlsForLine();
+
+  // Enregistrement d'un arrêt
+  document.getElementById("arretSaveBtn").addEventListener("click", () => {
+    const now = getNow();
+    const rec = {
+      dateTime: formatDateTime(now),
+      line: arretLineEl ? arretLineEl.value : "",
+      sousLigne:
+        arretSousZoneRowEl &&
+        arretSousZoneRowEl.style.display !== "none" &&
+        arretSousZoneEl
+          ? arretSousZoneEl.value
+          : "",
+      machine: arretMachineEl ? arretMachineEl.value : "",
+      duration: Number(document.getElementById("arretDuration").value) || 0,
+      comment: document.getElementById("arretComment").value || "",
+    };
+    state.arrets.push(rec);
+    saveState();
+    document.getElementById("arretDuration").value = "";
+    document.getElementById("arretComment").value = "";
+    refreshArretsView();
+    refreshAtelierView();
+  });
+}
+
+// Permet d’ouvrir la page Arrêts depuis la page Production
+function openArretFromProduction(line, duration) {
+  if (!arretLineEl) return;
+  arretLineEl.value = line;
+  updateArretControlsForLine();
+  const durInput = document.getElementById("arretDuration");
+  if (durInput) durInput.value = duration || "";
+  showSection("arrets");
 }
 
 function refreshArretsView() {
-  const table = document.getElementById("arretsHistoryTable");
-  if (!table) return;
-  const tbody = table.querySelector("tbody");
+  const tbody = document
+    .getElementById("arretsHistoryTable")
+    .querySelector("tbody");
   tbody.innerHTML = "";
   state.arrets.forEach((rec) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${rec.dateTime}</td>
       <td>${rec.line}</td>
-      <td>${rec.sousZone || "-"}</td>
-      <td>${rec.machine || "-"}</td>
+      <td>${rec.sousLigne || "-"}</td>
+      <td>${rec.machine}</td>
       <td>${rec.duration}</td>
       <td>${rec.comment || ""}</td>
     `;
@@ -603,32 +601,27 @@ function refreshArretsView() {
 // === ORGANISATION / CONSIGNES ===
 
 function bindOrganisationForm() {
-  const btn = document.getElementById("orgSaveBtn");
-  if (!btn) return;
-
-  btn.addEventListener("click", () => {
+  document.getElementById("orgSaveBtn").addEventListener("click", () => {
     const now = getNow();
     const rec = {
       dateTime: formatDateTime(now),
       equipe: getEquipeFromDate(now),
-      consigne: document.getElementById("orgConsigne")?.value || "",
-      visa: document.getElementById("orgVisa")?.value || "",
+      consigne: document.getElementById("orgConsigne").value || "",
+      visa: document.getElementById("orgVisa").value || "",
       valide: false,
     };
     state.organisation.push(rec);
     saveState();
-    const c = document.getElementById("orgConsigne");
-    const v = document.getElementById("orgVisa");
-    if (c) c.value = "";
-    if (v) v.value = "";
+    document.getElementById("orgConsigne").value = "";
+    document.getElementById("orgVisa").value = "";
     refreshOrganisationView();
   });
 }
 
 function refreshOrganisationView() {
-  const table = document.getElementById("orgHistoryTable");
-  if (!table) return;
-  const tbody = table.querySelector("tbody");
+  const tbody = document
+    .getElementById("orgHistoryTable")
+    .querySelector("tbody");
   tbody.innerHTML = "";
   state.organisation.forEach((rec, idx) => {
     const tr = document.createElement("tr");
@@ -661,34 +654,28 @@ function refreshOrganisationView() {
 // === PERSONNEL ===
 
 function bindPersonnelForm() {
-  const btn = document.getElementById("persSaveBtn");
-  if (!btn) return;
-
-  btn.addEventListener("click", () => {
+  document.getElementById("persSaveBtn").addEventListener("click", () => {
     const now = getNow();
     const rec = {
       dateTime: formatDateTime(now),
       equipe: getEquipeFromDate(now),
-      nom: document.getElementById("persNom")?.value || "",
-      motif: document.getElementById("persMotif")?.value || "",
-      comment: document.getElementById("persComment")?.value || "",
+      nom: document.getElementById("persNom").value || "",
+      motif: document.getElementById("persMotif").value || "",
+      comment: document.getElementById("persComment").value || "",
     };
     state.personnel.push(rec);
     saveState();
-    const n = document.getElementById("persNom");
-    const m = document.getElementById("persMotif");
-    const c = document.getElementById("persComment");
-    if (n) n.value = "";
-    if (m) m.value = "";
-    if (c) c.value = "";
+    document.getElementById("persNom").value = "";
+    document.getElementById("persMotif").value = "";
+    document.getElementById("persComment").value = "";
     refreshPersonnelView();
   });
 }
 
 function refreshPersonnelView() {
-  const table = document.getElementById("persHistoryTable");
-  if (!table) return;
-  const tbody = table.querySelector("tbody");
+  const tbody = document
+    .getElementById("persHistoryTable")
+    .querySelector("tbody");
   tbody.innerHTML = "";
   state.personnel.forEach((rec) => {
     const tr = document.createElement("tr");
@@ -704,6 +691,7 @@ function refreshPersonnelView() {
 }
 
 // === ATELIER (vue globale) ===
+
 let atelierChart = null;
 
 function refreshAtelierView() {
@@ -714,9 +702,7 @@ function refreshAtelierView() {
   LINES.forEach((line) => {
     const records = state.production[line] || [];
     const totalQty = records.reduce((sum, r) => sum + (r.quantity || 0), 0);
-    const cadences = records
-      .map((r) => r.cadence)
-      .filter((c) => c && c > 0);
+    const cadences = records.map((r) => r.cadence).filter((c) => c && c > 0);
     const avgCad =
       cadences.length > 0
         ? cadences.reduce((s, c) => s + c, 0) / cadences.length
@@ -735,33 +721,31 @@ function refreshAtelierView() {
   });
 
   // Tableau arrêts sur Atelier (trié par durée)
-  const table = document.getElementById("atelier-arrets-table");
-  if (table) {
-    const tbody = table.querySelector("tbody");
-    tbody.innerHTML = "";
-    const arretsSorted = [...state.arrets].sort(
-      (a, b) => (b.duration || 0) - (a.duration || 0)
-    );
-    arretsSorted.forEach((rec) => {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${rec.line}</td>
-        <td>${rec.sousZone || "-"}</td>
-        <td>${rec.machine || "-"}</td>
-        <td>${rec.duration}</td>
-        <td>${rec.comment || ""}</td>
-      `;
-      tbody.appendChild(tr);
-    });
-  }
+  const tbody = document
+    .getElementById("atelier-arrets-table")
+    .querySelector("tbody");
+  tbody.innerHTML = "";
+  const arretsSorted = [...state.arrets].sort(
+    (a, b) => (b.duration || 0) - (a.duration || 0)
+  );
+  arretsSorted.forEach((rec) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${rec.line}</td>
+      <td>${rec.sousLigne || "-"}</td>
+      <td>${rec.machine}</td>
+      <td>${rec.duration}</td>
+      <td>${rec.comment || ""}</td>
+    `;
+    tbody.appendChild(tr);
+  });
 
   // Graphique d’évolution des cadences (une courbe par ligne)
   const ctx = document.getElementById("atelierChart");
-  if (!ctx || typeof Chart === "undefined") return;
+  if (!ctx) return;
 
   const labels = [];
   const datasets = [];
-
   LINES.forEach((line) => {
     const records = state.production[line] || [];
     if (!records.length) return;
@@ -826,13 +810,12 @@ function refreshAtelierView() {
       },
     },
   });
-      }
+}
+
 // === EXPORT EXCEL GLOBAL ===
 
 function bindExportGlobal() {
   const btn = document.getElementById("exportGlobalBtn");
-  if (!btn) return;
-
   btn.addEventListener("click", () => {
     const now = getNow();
     const hh = String(now.getHours()).padStart(2, "0");
@@ -843,20 +826,7 @@ function bindExportGlobal() {
     const wb = XLSX.utils.book_new();
 
     // Sheet Production
-    const prodRows = [
-      [
-        "Ligne",
-        "Date/Heure",
-        "Équipe",
-        "Début",
-        "Fin",
-        "Qté",
-        "Arrêt (min)",
-        "Cadence",
-        "Temps restant",
-        "Commentaire",
-      ],
-    ];
+    const prodRows = [["Ligne", "Date/Heure", "Équipe", "Début", "Fin", "Qté", "Arrêt (min)", "Cadence", "Temps restant", "Commentaire"]];
     LINES.forEach((line) => {
       (state.production[line] || []).forEach((r) => {
         prodRows.push([
@@ -877,22 +847,13 @@ function bindExportGlobal() {
     XLSX.utils.book_append_sheet(wb, wsProd, "Production");
 
     // Sheet Arrêts
-    const arrRows = [
-      [
-        "Date/Heure",
-        "Ligne",
-        "Sous-zone / Zone",
-        "Machine",
-        "Durée (min)",
-        "Commentaire",
-      ],
-    ];
+    const arrRows = [["Date/Heure", "Ligne", "Sous-ligne", "Machine", "Durée (min)", "Commentaire"]];
     state.arrets.forEach((r) => {
       arrRows.push([
         r.dateTime,
         r.line,
-        r.sousZone || "",
-        r.machine || "",
+        r.sousLigne || "",
+        r.machine,
         r.duration,
         r.comment || "",
       ]);
@@ -901,9 +862,7 @@ function bindExportGlobal() {
     XLSX.utils.book_append_sheet(wb, wsArr, "Arrêts");
 
     // Sheet Organisation
-    const orgRows = [
-      ["Date/Heure", "Équipe", "Consigne", "Visa", "Validée"],
-    ];
+    const orgRows = [["Date/Heure", "Équipe", "Consigne", "Visa", "Validée"]];
     state.organisation.forEach((r) => {
       orgRows.push([
         r.dateTime,
@@ -917,17 +876,9 @@ function bindExportGlobal() {
     XLSX.utils.book_append_sheet(wb, wsOrg, "Organisation");
 
     // Sheet Personnel
-    const persRows = [
-      ["Date/Heure", "Équipe", "Nom", "Motif", "Commentaire"],
-    ];
+    const persRows = [["Date/Heure", "Équipe", "Nom", "Motif", "Commentaire"]];
     state.personnel.forEach((r) => {
-      persRows.push([
-        r.dateTime,
-        r.equipe,
-        r.nom,
-        r.motif,
-        r.comment || "",
-      ]);
+      persRows.push([r.dateTime, r.equipe, r.nom, r.motif, r.comment || ""]);
     });
     const wsPers = XLSX.utils.aoa_to_sheet(persRows);
     XLSX.utils.book_append_sheet(wb, wsPers, "Personnel");
@@ -943,8 +894,6 @@ function initCalculator() {
   const toggle = document.getElementById("calcToggle");
   const closeBtn = document.getElementById("calcCloseBtn");
   const display = document.getElementById("calcDisplay");
-  if (!calc || !toggle || !closeBtn || !display) return;
-
   let expr = "";
 
   function refresh() {
@@ -998,8 +947,6 @@ function bindDDM() {
   const qInput = document.getElementById("ddmQuantieme");
   const aInput = document.getElementById("ddmAnnee");
   const dInput = document.getElementById("ddmDuree");
-
-  if (!btn || !out || !qInput || !aInput || !dInput) return;
 
   // Valeur par défaut année : année courante
   aInput.value = new Date().getFullYear();
