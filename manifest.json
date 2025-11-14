@@ -1,10 +1,12 @@
 {
   "name": "Atelier PPNC",
   "short_name": "Atelier PPNC",
-  "start_url": "./index.html",
+  "start_url": ".",
+  "scope": ".",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#007bff",
+  "orientation": "portrait",
+  "background_color": "#005bff",
+  "theme_color": "#005bff",
   "icons": [
     {
       "src": "icons/icon-192.png",
