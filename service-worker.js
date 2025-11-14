@@ -1,23 +1,28 @@
-// service-worker.js – RESET COMPLET DU SERVICE WORKER
+const CACHE_NAME = "atelier-ppnc-v1";
+const ASSETS = [
+  "./",
+  "./index.html",
+  "./style.css",
+  "./app.js",
+  "./manifest.json"
+];
 
-self.addEventListener('install', (event) => {
-  // On prend la main immédiatement
-  self.skipWaiting();
-});
-
-self.addEventListener('activate', (event) => {
-  // On vide tous les caches existants et on désinstalle le SW
+self.addEventListener("install", (event) => {
   event.waitUntil(
-    (async () => {
-      const keys = await caches.keys();
-      await Promise.all(keys.map((key) => caches.delete(key)));
-      await self.registration.unregister();
-      console.log('[SW] Tous les caches supprimés et service worker désinstallé');
-    })()
+    caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
   );
 });
 
-// On ne fait rien sur les fetch : tout repasse en direct au serveur
-self.addEventListener('fetch', () => {
-  // Intentionnellement vide
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
+    )
+  );
+});
+
+self.addEventListener("fetch", (event) => {
+  event.respondWith(
+    caches.match(event.request).then(resp => resp || fetch(event.request))
+  );
 });
