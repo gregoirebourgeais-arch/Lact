@@ -172,54 +172,89 @@
 
     <!-- PAGE ARRETS -->
     <section id="section-arrets" class="section">
-      <h2>Arrêts</h2>
-      <div class="card">
-        <h3>Saisie d’un arrêt</h3>
-        <div class="form-grid">
-          <div class="form-group">
-            <label for="arretLine">Ligne</label>
-            <select id="arretLine"></select>
-          </div>
-          <div class="form-group">
-            <label for="arretType">Type</label>
-            <select id="arretType">
-              <option value="Découpe">Découpe</option>
-              <option value="Packing">Packing</option>
-              <option value="MEC">MEC</option>
-              <option value="Autre">Autre</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="arretDuration">Durée (min)</label>
-            <input type="number" id="arretDuration" min="0" />
-          </div>
-          <div class="form-group form-group-wide">
-            <label for="arretComment">Commentaire</label>
-            <textarea id="arretComment" rows="2"></textarea>
-          </div>
-        </div>
-        <div class="buttons-row">
-          <button id="arretSaveBtn" class="primary-btn">💾 Enregistrer arrêt</button>
-        </div>
-      </div>
+  <div class="page-header">
+    <h1>Suivi des arrêts</h1>
+  </div>
 
-      <div class="card">
-        <h3>Historique des arrêts</h3>
-        <table class="table" id="arretsHistoryTable">
-          <thead>
-            <tr>
-              <th>Date/Heure</th>
-              <th>Ligne</th>
-              <th>Type</th>
-              <th>Durée (min)</th>
-              <th>Commentaire</th>
-            </tr>
-          </thead>
-          <tbody>
-            <!-- Historique arrêts -->
-          </tbody>
-        </table>
-      </div>
+  <!-- Carte de saisie d'un arrêt -->
+  <div class="card">
+    <h2>Nouvel arrêt</h2>
+
+    <!-- Ligne concernée -->
+    <div class="form-row">
+      <label for="arretLine">Ligne impactée :</label>
+      <select id="arretLine">
+        <!-- Rempli automatiquement par app.js avec la constante LINES -->
+      </select>
+    </div>
+
+    <!-- Sous-zone (Découpe / Packing / MEC / Autre) -->
+    <div class="form-row">
+      <label for="arretSousZone">Sous-zone :</label>
+      <select id="arretSousZone">
+        <!-- Options remplies par app.js en fonction de la ligne -->
+      </select>
+    </div>
+
+    <!-- Machine (liste détaillée issue du document Word) -->
+    <div class="form-row">
+      <label for="arretMachine">Machine / origine de l'arrêt :</label>
+      <select id="arretMachine">
+        <!-- Options remplies par app.js en fonction de la ligne + sous-zone -->
+      </select>
+    </div>
+
+    <!-- Durée d'arrêt -->
+    <div class="form-row">
+      <label for="arretDuration">Durée de l'arrêt (minutes) :</label>
+      <input
+        type="number"
+        id="arretDuration"
+        min="0"
+        step="1"
+        placeholder="0"
+      />
+    </div>
+
+    <!-- Commentaire -->
+    <div class="form-row">
+      <label for="arretComment">Commentaire :</label>
+      <textarea
+        id="arretComment"
+        rows="3"
+        placeholder="Détails / explications..."
+      ></textarea>
+    </div>
+
+    <!-- Bouton d'enregistrement -->
+    <div class="form-actions">
+      <button id="arretSaveBtn" class="primary-btn">
+        💾 Enregistrer l'arrêt
+      </button>
+    </div>
+  </div>
+
+  <!-- Carte historique des arrêts -->
+  <div class="card">
+    <h2>Historique des arrêts</h2>
+    <div class="table-wrapper">
+      <table id="arretsHistoryTable" class="data-table">
+        <thead>
+          <tr>
+            <th>Date / Heure</th>
+            <th>Ligne</th>
+            <th>Sous-zone</th>
+            <th>Machine</th>
+            <th>Durée (min)</th>
+            <th>Commentaire</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Rempli par app.js -->
+        </tbody>
+      </table>
+    </div>
+  </div>
     </section>
 
     <!-- PAGE ORGANISATION (consignes) -->
