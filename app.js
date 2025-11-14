@@ -634,4 +634,135 @@ function updateAtelierChart() {
   const labels = [];
 
   const sorted = historyProduction.slice().sort((a,b) => a.dateISO.localeCompare(b.dateISO));
-  for (const e of
+  for (const e of sorted) {
+    const dt = new Date(e.dateISO);
+    const label = dt.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+    labels.push(label);
+  }
+
+  LINES.forEach(l => {
+    byLine[l] = new Array(sorted.length).fill(null);
+  });
+
+  sorted.forEach((e,idx) => {
+    if (byLine[e.line]) byLine[e.line][idx] = e.cadence;
+  });
+
+  const datasets = LINES.map((line, i) => ({
+    label: line,
+    data: byLine[line],
+    borderWidth: 2,
+    tension: 0.2,
+    spanGaps: true
+  }));
+
+  if (atelierChart) {
+    atelierChart.data.labels = labels;
+    atelierChart.data.datasets = datasets;
+    atelierChart.update();
+  } else {
+    atelierChart = new Chart(ctx, {
+      type: "line",
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: "bottom" }
+        },
+        scales: {
+          y: { title: { display:true, text:"Cadence (colis/h)" } }
+        }
+      }
+    });
+  }
+}
+
+// === EXPORT EXCEL ===
+
+function bindExport() {
+  document.getElementById("exportBtn").addEventListener("click", exportExcel);
+}
+
+function exportExcel() {
+  const wb = XLSX.utils.book_new();
+
+  const prodSheet = XLSX.utils.json_to_sheet(historyProduction.map(e => ({
+    Date: new Date(e.dateISO).toLocaleString("fr-FR"),
+    Ligne: e.line,
+    "Heure début": e.heureDebut,
+    "Heure fin": e.heureFin,
+    "Qté produite": e.quantiteProduite,
+    "Qté restante": e.quantiteRestante,
+    Cadence: e.cadence,
+    Équipe: e.equipe
+  })));
+  XLSX.utils.book_append_sheet(wb, prodSheet, "Production");
+
+  const arretsSheet = XLSX.utils.json_to_sheet(historyArrets.map(e => ({
+    Date: new Date(e.dateISO).toLocaleString("fr-FR"),
+    Ligne: e.ligne,
+    "Sous-ligne": e.sousLigne,
+    Source: e.source,
+    "Durée (min)": e.duree,
+    Commentaire: e.commentaire,
+    Équipe: e.equipe
+  })));
+  XLSX.utils.book_append_sheet(wb, arretsSheet, "Arrêts");
+
+  const consSheet = XLSX.utils.json_to_sheet(historyConsignes.map(e => ({
+    Date: new Date(e.dateISO).toLocaleString("fr-FR"),
+    Consigne: e.texte,
+    Valide: e.valide ? "Oui" : "Non",
+    Équipe: e.equipe
+  })));
+  XLSX.utils.book_append_sheet(wb, consSheet, "Organisation");
+
+  const persSheet = XLSX.utils.json_to_sheet(historyPersonnel.map(e => ({
+    Date: new Date(e.dateISO).toLocaleString("fr-FR"),
+    Note: e.texte,
+    Équipe: e.equipe
+  })));
+  XLSX.utils.book_append_sheet(wb, persSheet, "Personnel");
+
+  const now = new Date();
+  const stamp = now.toISOString().replace(/[-:T]/g,"").slice(0,12);
+  const filename = `Atelier_PPNC_${stamp}.xlsx`;
+  XLSX.writeFile(wb, filename);
+}
+
+// === CALCULATRICE ===
+
+function bindCalculator() {
+  const toggle = document.getElementById("calcToggle");
+  const calc = document.getElementById("calculator");
+  const close = document.getElementById("calcClose");
+  const display = document.getElementById("calcDisplay");
+
+  toggle.addEventListener("click", () => {
+    calc.classList.toggle("hidden");
+  });
+  close.addEventListener("click", () => calc.classList.add("hidden"));
+
+  calc.addEventListener("click", (e) => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    const key = btn.dataset.key;
+    const action = btn.dataset.action;
+
+    if (key) {
+      display.value += key;
+    } else if (action === "clear") {
+      display.value = "";
+    } else if (action === "equal") {
+      try {
+        // evaluation simple
+        // eslint-disable-next-line no-eval
+        const result = eval(display.value || "0");
+        display.value = String(result);
+      } catch {
+        display.value = "Erreur";
+      }
+    }
+  });
+  }
+    
