@@ -1,243 +1,375 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Atelier PPNC</title>
-  <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <title>Atelier PPNC - Production lignes</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <!-- PWA -->
-  <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#007bff">
+  <link rel="stylesheet" href="style.css" />
 
+  <!-- Chart.js pour les graphiques -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <!-- SheetJS pour l'export Excel -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-
-  <!-- Chart.js pour les courbes de cadence -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
   <header class="app-header">
-    <div class="header-left">
-      <div class="logo-circle">L</div>
-      <div class="header-title">
-        <div class="app-name">Atelier PPNC</div>
-        <div id="header-datetime" class="header-sub"></div>
-      </div>
+    <div class="app-title">
+      <span class="app-main-title">Atelier PPNC</span>
+      <span class="app-sub-title">Suivi Production & Arrêts</span>
+    </div>
+    <div class="header-info" id="header-datetime">
+      <!-- Date / heure / semaine / équipe injectés par JS -->
     </div>
   </header>
 
+  <!-- Barre de navigation principale -->
   <nav class="top-nav">
-    <button class="nav-btn active" data-page="atelier">🧾 Atelier</button>
-    <button class="nav-btn" data-page="production">📦 Production</button>
-    <button class="nav-btn" data-page="arrets">⏸️ Arrêts</button>
-    <button class="nav-btn" data-page="organisation">📒 Organisation</button>
-    <button class="nav-btn" data-page="personnel">👥 Personnel</button>
-    <button class="nav-btn" id="exportBtn">📊 Export Excel</button>
+    <button class="nav-btn active" data-section="atelier">Atelier</button>
+    <button class="nav-btn" data-section="production">Production</button>
+    <button class="nav-btn" data-section="arrets">Arrêts</button>
+    <button class="nav-btn" data-section="organisation">Organisation</button>
+    <button class="nav-btn" data-section="personnel">Personnel</button>
+    <button class="nav-btn" data-section="validation">Validation DDM</button>
   </nav>
 
   <main>
-    <!-- PAGE ATELIER -->
-    <section id="page-atelier" class="page active">
-      <h2>Vue d’ensemble de l’atelier</h2>
+    <!-- PAGE ATELIER (accueil / vue d’ensemble) -->
+    <section id="section-atelier" class="section visible">
+      <h2>Vue d’ensemble Atelier</h2>
 
-      <div class="card">
-        <h3>Cadence par ligne (colis/h)</h3>
-        <canvas id="atelierChart" height="220"></canvas>
-      </div>
+      <div class="atelier-grid">
+        <div class="card">
+          <h3>Production par ligne (aujourd’hui)</h3>
+          <div id="atelier-lines-summary">
+            <!-- Résumé par ligne généré en JS -->
+          </div>
+        </div>
 
-      <div class="card">
-        <h3>Historique global (production)</h3>
-        <div id="global-history" class="history-list"></div>
+        <div class="card">
+          <h3>Évolution des cadences</h3>
+          <canvas id="atelierChart"></canvas>
+          <p class="helper-text">
+            Une courbe par ligne, basée sur les enregistrements de production.
+          </p>
+        </div>
+
+        <div class="card">
+          <h3>Arrêts principaux</h3>
+          <table class="table" id="atelier-arrets-table">
+            <thead>
+              <tr>
+                <th>Ligne</th>
+                <th>Type</th>
+                <th>Durée (min)</th>
+                <th>Commentaire</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Arrêts triés par durée (desc) -->
+            </tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h3>Export Excel global</h3>
+          <p class="helper-text">
+            Exporte Production, Arrêts, Organisation, Personnel sur plusieurs onglets dans un seul fichier Excel.
+          </p>
+          <button id="exportGlobalBtn" class="primary-btn">📤 Export global Excel</button>
+        </div>
       </div>
     </section>
 
     <!-- PAGE PRODUCTION -->
-    <section id="page-production" class="page">
-      <h2>Suivi de production par ligne</h2>
+    <section id="section-production" class="section">
+      <div class="production-layout">
+        <aside class="lines-sidebar">
+          <h3>Lignes</h3>
+          <div class="lines-list" id="linesList">
+            <!-- Boutons de lignes générés par JS -->
+          </div>
+        </aside>
 
-      <div class="line-selector">
-        <!-- boutons créés en JS à partir de LINES -->
-      </div>
+        <div class="line-content">
+          <h2 id="currentLineTitle">Ligne</h2>
 
-      <div class="card" id="production-form-card">
-        <h3 id="production-line-title">Ligne</h3>
+          <div class="card">
+            <h3>Saisie production</h3>
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="prodStartTime">Heure début</label>
+                <input type="time" id="prodStartTime" />
+              </div>
+              <div class="form-group">
+                <label for="prodEndTime">Heure fin</label>
+                <input type="time" id="prodEndTime" />
+              </div>
+              <div class="form-group">
+                <label for="prodQuantity">Quantité produite (colis)</label>
+                <input type="number" id="prodQuantity" min="0" />
+              </div>
+              <div class="form-group">
+                <label for="prodRemaining">Quantité restante (colis)</label>
+                <input type="number" id="prodRemaining" min="0" />
+              </div>
+              <div class="form-group">
+                <label for="prodCadenceManual">Cadence manuelle (colis/heure)</label>
+                <input type="number" id="prodCadenceManual" min="0" step="0.01" />
+              </div>
+              <div class="form-group">
+                <label for="prodArretMinutes">Arrêts (min)</label>
+                <input type="number" id="prodArretMinutes" min="0" />
+              </div>
+              <div class="form-group form-group-wide">
+                <label for="prodComment">Commentaire</label>
+                <textarea id="prodComment" rows="2"></textarea>
+              </div>
+            </div>
 
-        <div class="form-row">
-          <label for="heureDebut">Heure début :</label>
-          <select id="heureDebut"></select>
+            <div class="info-row">
+              <div>
+                <strong>Cadence calculée :</strong>
+                <span id="prodCadenceDisplay">-</span> colis/heure
+              </div>
+              <div>
+                <strong>Temps restant estimé :</strong>
+                <span id="prodRemainingTimeDisplay">-</span>
+              </div>
+            </div>
+
+            <div class="buttons-row">
+              <button id="prodSaveBtn" class="primary-btn">💾 Enregistrer</button>
+              <button id="prodUndoBtn" class="secondary-btn">↩️ Annuler dernier</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>Historique de la ligne</h3>
+            <table class="table" id="prodHistoryTable">
+              <thead>
+                <tr>
+                  <th>Date/Heure</th>
+                  <th>Équipe</th>
+                  <th>Début</th>
+                  <th>Fin</th>
+                  <th>Qté</th>
+                  <th>Arrêt (min)</th>
+                  <th>Cadence</th>
+                  <th>Temps restant estimé</th>
+                  <th>Commentaire</th>
+                  <th>Suppr.</th>
+                </tr>
+              </thead>
+              <tbody>
+                <!-- Historique ligne courante -->
+              </tbody>
+            </table>
+          </div>
         </div>
-
-        <div class="form-row">
-          <label for="heureFin">Heure fin :</label>
-          <select id="heureFin"></select>
-        </div>
-
-        <div class="form-row">
-          <label for="quantiteProduite">Quantité produite :</label>
-          <input type="number" id="quantiteProduite" min="0" inputmode="numeric">
-        </div>
-
-        <div class="form-row">
-          <label for="quantiteRestante">Quantité restante :</label>
-          <input type="number" id="quantiteRestante" min="0" inputmode="numeric">
-        </div>
-
-        <div class="form-row">
-          <label for="cadenceManuelle">Cadence manuelle (colis/h) :</label>
-          <input type="number" id="cadenceManuelle" min="0" step="1" inputmode="numeric">
-        </div>
-
-        <div class="info-row">
-          <div>Cadence calculée : <span id="cadenceMoyenne">0</span> colis/h</div>
-          <div>Temps restant : <span id="tempsRestant">--:--</span></div>
-        </div>
-
-        <div class="btn-row">
-          <button id="btnEnregistrerProd" class="primary">💾 Enregistrer</button>
-          <button id="btnResetProd" class="secondary">♻️ Remise à zéro ligne</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>Historique de la ligne</h3>
-        <div id="production-history" class="history-list"></div>
       </div>
     </section>
 
     <!-- PAGE ARRETS -->
-    <section id="page-arrets" class="page">
-      <h2>Gestion des arrêts</h2>
-
+    <section id="section-arrets" class="section">
+      <h2>Arrêts</h2>
       <div class="card">
-        <div class="form-row">
-          <label for="arretLigne">Ligne impactée :</label>
-          <select id="arretLigne"></select>
+        <h3>Saisie d’un arrêt</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="arretLine">Ligne</label>
+            <select id="arretLine"></select>
+          </div>
+          <div class="form-group">
+            <label for="arretType">Type</label>
+            <select id="arretType">
+              <option value="Découpe">Découpe</option>
+              <option value="Packing">Packing</option>
+              <option value="MEC">MEC</option>
+              <option value="Autre">Autre</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="arretDuration">Durée (min)</label>
+            <input type="number" id="arretDuration" min="0" />
+          </div>
+          <div class="form-group form-group-wide">
+            <label for="arretComment">Commentaire</label>
+            <textarea id="arretComment" rows="2"></textarea>
+          </div>
         </div>
-
-        <!-- sous-ligne uniquement pour Râpé -->
-        <div class="form-row" id="wrapperSousLigne" style="display:none;">
-          <label for="arretSousLigne">Sous-ligne :</label>
-          <select id="arretSousLigne">
-            <option value="">– Sélectionner –</option>
-            <option value="R1">R1</option>
-            <option value="R2">R2</option>
-            <option value="R1/R2">R1/R2</option>
-          </select>
-        </div>
-
-        <div class="form-row">
-          <label for="arretSource">Source d’arrêt :</label>
-          <select id="arretSource"></select>
-        </div>
-
-        <div class="form-row" id="wrapperSourceLibre" style="display:none;">
-          <label for="arretSourceLibre">Source (texte libre) :</label>
-          <input type="text" id="arretSourceLibre" placeholder="Préciser la source d’arrêt…">
-        </div>
-
-        <div class="form-row">
-          <label for="arretDuree">Durée (minutes) :</label>
-          <input type="number" id="arretDuree" min="0" inputmode="numeric">
-        </div>
-
-        <div class="form-row">
-          <label for="arretCommentaire">Commentaire :</label>
-          <textarea id="arretCommentaire" rows="2" placeholder="Détails de l’arrêt…"></textarea>
-        </div>
-
-        <div class="btn-row">
-          <button id="btnEnregistrerArret" class="primary">💾 Enregistrer l’arrêt</button>
+        <div class="buttons-row">
+          <button id="arretSaveBtn" class="primary-btn">💾 Enregistrer arrêt</button>
         </div>
       </div>
 
       <div class="card">
         <h3>Historique des arrêts</h3>
-        <div id="arrets-history" class="history-list"></div>
+        <table class="table" id="arretsHistoryTable">
+          <thead>
+            <tr>
+              <th>Date/Heure</th>
+              <th>Ligne</th>
+              <th>Type</th>
+              <th>Durée (min)</th>
+              <th>Commentaire</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Historique arrêts -->
+          </tbody>
+        </table>
       </div>
     </section>
 
-    <!-- PAGE ORGANISATION -->
-    <section id="page-organisation" class="page">
+    <!-- PAGE ORGANISATION (consignes) -->
+    <section id="section-organisation" class="section">
       <h2>Organisation / Consignes</h2>
-
       <div class="card">
-        <div class="form-row">
-          <label for="consigneTexte">Nouvelle consigne :</label>
-          <textarea id="consigneTexte" rows="2" placeholder="Renseigner la consigne…"></textarea>
+        <h3>Nouvelle consigne</h3>
+        <div class="form-grid">
+          <div class="form-group form-group-wide">
+            <label for="orgConsigne">Consigne</label>
+            <textarea id="orgConsigne" rows="3"></textarea>
+          </div>
+          <div class="form-group">
+            <label for="orgVisa">Visa</label>
+            <input type="text" id="orgVisa" />
+          </div>
         </div>
-
-        <div class="form-row">
-          <label>
-            <input type="checkbox" id="consigneValidee">
-            Consigne réalisée immédiatement
-          </label>
-        </div>
-
-        <div class="btn-row">
-          <button id="btnEnregistrerConsigne" class="primary">💾 Enregistrer</button>
+        <div class="buttons-row">
+          <button id="orgSaveBtn" class="primary-btn">💾 Enregistrer consigne</button>
         </div>
       </div>
 
       <div class="card">
         <h3>Historique des consignes</h3>
-        <div id="consignes-history" class="history-list"></div>
+        <table class="table" id="orgHistoryTable">
+          <thead>
+            <tr>
+              <th>Date/Heure</th>
+              <th>Équipe</th>
+              <th>Consigne</th>
+              <th>Visa</th>
+              <th>Validée ?</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Historique consignes -->
+          </tbody>
+        </table>
       </div>
     </section>
 
     <!-- PAGE PERSONNEL -->
-    <section id="page-personnel" class="page">
-      <h2>Notes personnel / équipe</h2>
-
+    <section id="section-personnel" class="section">
+      <h2>Personnel</h2>
       <div class="card">
-        <div class="form-row">
-          <label for="notePersonnel">Nouvelle note :</label>
-          <textarea id="notePersonnel" rows="2" placeholder="Observation, renfort, absence…"></textarea>
+        <h3>Événement personnel</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="persNom">Nom</label>
+            <input type="text" id="persNom" />
+          </div>
+          <div class="form-group">
+            <label for="persMotif">Motif</label>
+            <select id="persMotif">
+              <option value="Absence">Absence</option>
+              <option value="Retard">Retard</option>
+              <option value="Départ">Départ</option>
+              <option value="Autre">Autre</option>
+            </select>
+          </div>
+          <div class="form-group form-group-wide">
+            <label for="persComment">Commentaire</label>
+            <textarea id="persComment" rows="2"></textarea>
+          </div>
         </div>
-        <div class="btn-row">
-          <button id="btnEnregistrerPersonnel" class="primary">💾 Enregistrer</button>
+        <div class="buttons-row">
+          <button id="persSaveBtn" class="primary-btn">💾 Enregistrer</button>
         </div>
       </div>
 
       <div class="card">
-        <h3>Historique Personnel</h3>
-        <div id="personnel-history" class="history-list"></div>
+        <h3>Historique personnel</h3>
+        <table class="table" id="persHistoryTable">
+          <thead>
+            <tr>
+              <th>Date/Heure</th>
+              <th>Équipe</th>
+              <th>Nom</th>
+              <th>Motif</th>
+              <th>Commentaire</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Historique personnel -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- PAGE VALIDATION DDM -->
+    <section id="section-validation" class="section">
+      <h2>Validation DDM</h2>
+      <div class="card">
+        <h3>Calcul de la DDM</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="ddmQuantieme">Quantième fabrication (1-366)</label>
+            <input type="number" id="ddmQuantieme" min="1" max="366" />
+          </div>
+          <div class="form-group">
+            <label for="ddmAnnee">Année fabrication</label>
+            <input type="number" id="ddmAnnee" />
+          </div>
+          <div class="form-group">
+            <label for="ddmDuree">Durée de vie (jours)</label>
+            <input type="number" id="ddmDuree" min="0" />
+          </div>
+        </div>
+        <div class="buttons-row">
+          <button id="ddmCalcBtn" class="primary-btn">🧮 Calculer DDM</button>
+        </div>
+        <p class="ddm-result">
+          DDM calculée : <strong id="ddmResult">-</strong>
+        </p>
       </div>
     </section>
   </main>
 
-  <!-- BOUTON + POPUP CALCULATRICE -->
-  <button id="calcToggle" class="fab">🧮</button>
+  <!-- CALCULATRICE FLOTTANTE -->
   <div id="calculator" class="calculator hidden">
     <div class="calc-header">
-      Calculatrice
-      <button id="calcClose" class="calc-close">✕</button>
+      <span>Calculatrice</span>
+      <button id="calcCloseBtn" class="calc-close-btn">✕</button>
     </div>
-    <input type="text" id="calcDisplay" class="calc-display" readonly>
+    <input type="text" id="calcDisplay" class="calc-display" readonly />
     <div class="calc-grid">
-      <button data-key="7">7</button>
-      <button data-key="8">8</button>
-      <button data-key="9">9</button>
-      <button data-key="/">/</button>
+      <button class="calc-btn" data-value="7">7</button>
+      <button class="calc-btn" data-value="8">8</button>
+      <button class="calc-btn" data-value="9">9</button>
+      <button class="calc-btn op" data-value="/">÷</button>
 
-      <button data-key="4">4</button>
-      <button data-key="5">5</button>
-      <button data-key="6">6</button>
-      <button data-key="*">*</button>
+      <button class="calc-btn" data-value="4">4</button>
+      <button class="calc-btn" data-value="5">5</button>
+      <button class="calc-btn" data-value="6">6</button>
+      <button class="calc-btn op" data-value="*">×</button>
 
-      <button data-key="1">1</button>
-      <button data-key="2">2</button>
-      <button data-key="3">3</button>
-      <button data-key="-">-</button>
+      <button class="calc-btn" data-value="1">1</button>
+      <button class="calc-btn" data-value="2">2</button>
+      <button class="calc-btn" data-value="3">3</button>
+      <button class="calc-btn op" data-value="-">−</button>
 
-      <button data-key="0">0</button>
-      <button data-key=".">.</button>
-      <button data-action="clear">C</button>
-      <button data-key="+">+</button>
+      <button class="calc-btn" data-value="0">0</button>
+      <button class="calc-btn" data-value=".">.</button>
+      <button class="calc-btn" data-action="clear">C</button>
+      <button class="calc-btn op" data-value="+">+</button>
 
-      <button class="equal" data-action="equal">=</button>
+      <button class="calc-btn equals" data-action="equals">=</button>
     </div>
   </div>
+  <button id="calcToggle" class="calculator-toggle">🧮</button>
 
   <script src="app.js"></script>
 </body>
